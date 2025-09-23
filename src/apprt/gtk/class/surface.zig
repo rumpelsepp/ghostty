@@ -14,6 +14,7 @@ const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
+const input_key = @import("../../../input/key.zig");
 const renderer = @import("../../../renderer.zig");
 const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
@@ -36,6 +37,37 @@ const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
+
+fn isMovingKey(keyval: c_uint) bool {
+    return switch (keyval) {
+        @as(c_uint, gdk.KEY_Up),
+        @as(c_uint, gdk.KEY_Down),
+        @as(c_uint, gdk.KEY_Left),
+        @as(c_uint, gdk.KEY_Right),
+        @as(c_uint, gdk.KEY_Home),
+        @as(c_uint, gdk.KEY_End),
+        @as(c_uint, gdk.KEY_Return),
+        @as(c_uint, gdk.KEY_BackSpace),
+        @as(c_uint, gdk.KEY_Delete),
+        => true,
+        else => false,
+    };
+}
+
+fn remapPhysicalKey(keyval: c_uint, physical_key: input_key.Key) input_key.Key {
+    return switch (keyval) {
+        @as(c_uint, gdk.KEY_Up) => .arrow_up,
+        @as(c_uint, gdk.KEY_Down) => .arrow_down,
+        @as(c_uint, gdk.KEY_Left) => .arrow_left,
+        @as(c_uint, gdk.KEY_Right) => .arrow_right,
+        @as(c_uint, gdk.KEY_Home) => .home,
+        @as(c_uint, gdk.KEY_End) => .end,
+        @as(c_uint, gdk.KEY_Return) => .enter,
+        @as(c_uint, gdk.KEY_BackSpace) => .backspace,
+        @as(c_uint, gdk.KEY_Delete) => .delete,
+        else => physical_key,
+    };
+}
 
 pub const Surface = extern struct {
     const Self = @This();
@@ -1285,7 +1317,7 @@ pub const Surface = extern struct {
 
         // Get the keyvals for this event.
         const keyval_unicode = gdk.keyvalToUnicode(keyval);
-        const keyval_unicode_unshifted: u21 = gtk_key.keyvalUnicodeUnshifted(
+        var keyval_unicode_unshifted: u21 = gtk_key.keyvalUnicodeUnshifted(
             priv.gl_area.as(gtk.Widget),
             key_event,
             keycode,
@@ -1293,7 +1325,7 @@ pub const Surface = extern struct {
 
         // We want to get the physical unmapped key to process physical keybinds.
         // (These are keybinds explicitly marked as requesting physical mapping).
-        const physical_key = keycode: {
+        var physical_key = keycode: {
             const w3c_key: input.Key = w3c: for (input.keycodes.entries) |entry| {
                 if (entry.native == keycode) break :w3c entry.key;
             } else .unidentified;
@@ -1356,6 +1388,11 @@ pub const Surface = extern struct {
                     priv.im_len = len;
                 } else |_| {}
             }
+        }
+
+        physical_key = remapPhysicalKey(keyval, physical_key);
+        if (isMovingKey(keyval)) {
+            keyval_unicode_unshifted = 0;
         }
 
         // Invoke the core Ghostty logic to handle this input.
