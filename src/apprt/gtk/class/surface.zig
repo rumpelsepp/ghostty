@@ -61,6 +61,7 @@ fn remapPhysicalKey(keyval: c_uint, physical_key: input_key.Key) input_key.Key {
         @as(c_uint, gdk.KEY_End) => .end,
         @as(c_uint, gdk.KEY_Return) => .enter,
         @as(c_uint, gdk.KEY_BackSpace) => .backspace,
+        @as(c_uint, gdk.KEY_Delete) => .delete,
         else => physical_key,
     };
 }
