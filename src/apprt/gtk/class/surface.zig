@@ -47,6 +47,7 @@ fn isMovingKey(keyval: c_uint) bool {
         @as(c_uint, gdk.KEY_End),
         @as(c_uint, gdk.KEY_Return),
         @as(c_uint, gdk.KEY_BackSpace),
+        @as(c_uint, gdk.KEY_Delete),
         => true,
         else => false,
     };
