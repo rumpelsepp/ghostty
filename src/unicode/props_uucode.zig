@@ -10,16 +10,14 @@ pub fn get(cp: u21) Properties {
         .width = 1,
         .width_zero_in_grapheme = true,
         .grapheme_break = .other,
-        .emoji_vs_text = false,
-        .emoji_vs_emoji = false,
+        .emoji_vs_base = false,
     };
 
     return .{
         .width = uucode.get(.width, cp),
         .width_zero_in_grapheme = uucode.get(.wcwidth_zero_in_grapheme, cp),
         .grapheme_break = uucode.get(.grapheme_break_no_control, cp),
-        .emoji_vs_text = uucode.get(.is_emoji_vs_text, cp),
-        .emoji_vs_emoji = uucode.get(.is_emoji_vs_emoji, cp),
+        .emoji_vs_base = uucode.get(.is_emoji_vs_base, cp),
     };
 }
 

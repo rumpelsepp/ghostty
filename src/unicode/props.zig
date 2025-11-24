@@ -21,16 +21,14 @@ pub const Properties = packed struct {
     grapheme_break: uucode.x.types.GraphemeBreakNoControl = .other,
 
     /// Emoji VS compatibility
-    emoji_vs_text: bool = false,
-    emoji_vs_emoji: bool = false,
+    emoji_vs_base: bool = false,
 
     // Needed for lut.Generator
     pub fn eql(a: Properties, b: Properties) bool {
         return a.width == b.width and
             a.width_zero_in_grapheme == b.width_zero_in_grapheme and
             a.grapheme_break == b.grapheme_break and
-            a.emoji_vs_text == b.emoji_vs_text and
-            a.emoji_vs_emoji == b.emoji_vs_emoji;
+            a.emoji_vs_base == b.emoji_vs_base;
     }
 
     // Needed for lut.Generator
@@ -43,15 +41,13 @@ pub const Properties = packed struct {
             \\    .width= {},
             \\    .width_zero_in_grapheme= {},
             \\    .grapheme_break= .{s},
-            \\    .emoji_vs_text= {},
-            \\    .emoji_vs_emoji= {},
+            \\    .emoji_vs_base= {},
             \\}}
         , .{
             self.width,
             self.width_zero_in_grapheme,
             @tagName(self.grapheme_break),
-            self.emoji_vs_text,
-            self.emoji_vs_emoji,
+            self.emoji_vs_base,
         });
     }
 };

@@ -380,21 +380,10 @@ pub fn print(self: *Terminal, c: u21) !void {
             // the cell width accordingly. VS16 makes the character wide and
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
-                // This check below isn't robust enough to be correct.
-                // But it is correct enough (the emoji check alone served us
-                // well through Ghostty 1.2.3!) and we can fix it up later.
-
                 const prev_props = unicode.table.get(prev.cell.content.codepoint);
-                // This is incorrect, but will be fixed in a separate PR.
-                const emoji = prev_props.grapheme_break == .extended_pictographic or
-                    prev_props.grapheme_break == .emoji_modifier_base;
-                if (!emoji) valid_check: {
-                    // If not an emoji, check if it is a defined variation
-                    // sequence in emoji-variation-sequences.txt
-                    if (c == 0xFE0F and prev_props.emoji_vs_emoji) break :valid_check;
-                    if (c == 0xFE0E and prev_props.emoji_vs_text) break :valid_check;
-                    return;
-                }
+                // Check if it is a valid variation sequence in
+                // emoji-variation-sequences.txt, and if not, ignore the char.
+                if (!prev_props.emoji_vs_base) return;
 
                 switch (c) {
                     0xFE0F => desired_wide = .wide,
@@ -3351,7 +3340,7 @@ test "Terminal: print invalid VS16 non-grapheme" {
     try t.print('x');
     try t.print(0xFE0F);
 
-    // We should have 2 cells taken up. It is one character but "wide".
+    // We should have 1 narrow cell.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
 
@@ -3664,6 +3653,71 @@ test "Terminal: VS15 on already narrow emoji" {
     }
 }
 
+test "Terminal: print invalid VS15 following emoji is wide" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print('\u{1F9E0}'); // 🧠
+    try t.print(0xFE0E); // not valid with U+1F9E0 as base
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '\u{1F9E0}'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: print invalid VS15 in emoji ZWJ sequence" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print('\u{1F469}'); // 👩
+    try t.print(0xFE0E); // not valid with U+1F469 as base
+    try t.print('\u{200D}'); // ZWJ
+    try t.print('\u{1F466}'); // 👦
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '\u{1F469}'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ '\u{200D}', '\u{1F466}' }, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
 test "Terminal: VS15 to make narrow character with pending wrap" {
     var t = try init(testing.allocator, .{ .rows = 5, .cols = 2 });
     defer t.deinit(testing.allocator);
@@ -3872,9 +3926,9 @@ test "Terminal: print invalid VS16 grapheme" {
 
     // https://github.com/mitchellh/ghostty/issues/1482
     try t.print('x');
-    try t.print(0xFE0F);
+    try t.print(0xFE0F); // invalid VS16
 
-    // We should have 2 cells taken up. It is one character but "wide".
+    // We should have 1 cells taken up, and narrow.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
 
@@ -3907,7 +3961,7 @@ test "Terminal: print invalid VS16 with second char" {
     try t.print(0xFE0F);
     try t.print('y');
 
-    // We should have 2 cells taken up. It is one character but "wide".
+    // We should have 2 cells taken up, from two separate narrow characters.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
 
@@ -4094,6 +4148,40 @@ test "Terminal: print Devanagari grapheme should be wide on next page" {
         const list_cell = t.screens.active.pages.getCell(.{ .active = .{ .x = 1, .y = rows - 1 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: print invalid VS16 with second char (combining)" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // https://github.com/mitchellh/ghostty/issues/1482
+    try t.print('n');
+    try t.print(0xFE0F); // invalid VS16
+    try t.print(0x0303); // combining tilde
+
+    // We should have 1 cells taken up, and narrow.
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'n'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{'\u{0303}'}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
 
