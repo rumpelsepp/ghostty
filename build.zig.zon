@@ -38,8 +38,9 @@
             .lazy = true,
         },
         .uucode = .{
-            .url = "https://github.com/jacobsandlund/uucode/archive/4c9e11de7c7648b3f1e131206e60a3f9cbe2fde6.tar.gz",
-            .hash = "uucode-0.1.0-ZZjBPqkITQC_aamLUUlzRuzpzSAfUe8g4ykzeYJkbnhC",
+            // jacobsandlund/uucode
+            .url = "https://github.com/jacobsandlund/uucode/archive/31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
+            .hash = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
