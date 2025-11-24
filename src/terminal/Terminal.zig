@@ -402,6 +402,12 @@ pub fn print(self: *Terminal, c: u21) !void {
                     else => unreachable,
                 }
             } else if (!unicode.table.get(c).width_zero_in_grapheme) {
+                // If we have a code point that contributes to the width of a
+                // grapheme, it necessarily means that we're at least at width
+                // 2, since the first code point must be at least width 1 to
+                // start. (Note that Prepend code points could effectively mean
+                // the first code point should be width 0, but we don't handle
+                // that yet.)
                 desired_wide = .wide;
             }
 
