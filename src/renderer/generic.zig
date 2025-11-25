@@ -122,6 +122,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         scrollbar: terminal.Scrollbar,
         scrollbar_dirty: bool,
 
+        /// The most recent viewport matches so that we can render search
+        /// matches in the visible frame. This is provided asynchronously
+        /// from the search thread so we have the dirty flag to also note
+        /// if we need to rebuild our cells to include search highlights.
+        ///
+        /// Note that the selections MAY BE INVALID (point to PageList nodes
+        /// that do not exist anymore). These must be validated prior to use.
+        search_matches: ?renderer.Message.SearchMatches,
+        search_matches_dirty: bool,
+
         /// The current set of cells to render. This is rebuilt on every frame
         /// but we keep this around so that we don't reallocate. Each set of
         /// cells goes into a separate shader.
@@ -527,6 +537,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             foreground: terminal.color.RGB,
             selection_background: ?configpkg.Config.TerminalColor,
             selection_foreground: ?configpkg.Config.TerminalColor,
+            search_background: configpkg.Config.TerminalColor,
+            search_foreground: configpkg.Config.TerminalColor,
             bold_color: ?configpkg.BoldColor,
             faint_opacity: u8,
             min_contrast: f32,
@@ -598,6 +610,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     .selection_background = config.@"selection-background",
                     .selection_foreground = config.@"selection-foreground",
+                    .search_background = config.@"search-background",
+                    .search_foreground = config.@"search-foreground",
 
                     .custom_shaders = custom_shaders,
                     .bg_image = bg_image,
@@ -672,6 +686,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .focused = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
+                .search_matches = null,
+                .search_matches_dirty = false,
 
                 // Render state
                 .cells = .{},
@@ -744,7 +760,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         pub fn deinit(self: *Self) void {
             self.terminal_state.deinit(self.alloc);
-
+            if (self.search_matches) |*m| m.arena.deinit();
             self.swap_chain.deinit();
 
             if (DisplayLink != void) {
@@ -1114,6 +1130,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
 
+                // If our terminal state is dirty at all we need to redo
+                // the viewport search.
+                if (self.terminal_state.dirty != .false) {
+                    state.terminal.flags.search_viewport_dirty = true;
+                }
+
                 // Get our scrollbar out of the terminal. We synchronize
                 // the scrollbar read with frame data updates because this
                 // naturally limits the number of calls to this method (it
@@ -1178,6 +1200,25 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             ) catch |err| {
                 log.warn("error searching for regex links err={}", .{err});
             };
+
+            // Clear our highlight state and update.
+            if (self.search_matches_dirty or self.terminal_state.dirty != .false) {
+                self.search_matches_dirty = false;
+
+                for (self.terminal_state.row_data.items(.highlights)) |*highlights| {
+                    highlights.clearRetainingCapacity();
+                }
+
+                if (self.search_matches) |m| {
+                    self.terminal_state.updateHighlightsFlattened(
+                        self.alloc,
+                        m.matches,
+                    ) catch |err| {
+                        // Not a critical error, we just won't show highlights.
+                        log.warn("error updating search highlights err={}", .{err});
+                    };
+                }
+            }
 
             // Build our GPU cells
             try self.rebuildCells(
@@ -2354,6 +2395,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const row_cells = row_data.items(.cells);
             const row_dirty = row_data.items(.dirty);
             const row_selection = row_data.items(.selection);
+            const row_highlights = row_data.items(.highlights);
 
             // If our cell contents buffer is shorter than the screen viewport,
             // we render the rows that fit, starting from the bottom. If instead
@@ -2369,7 +2411,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 row_cells[0..row_len],
                 row_dirty[0..row_len],
                 row_selection[0..row_len],
-            ) |y_usize, row, *cells, *dirty, selection| {
+                row_highlights[0..row_len],
+            ) |y_usize, row, *cells, *dirty, selection, highlights| {
                 const y: terminal.size.CellCountInt = @intCast(y_usize);
 
                 if (!rebuild) {
@@ -2513,15 +2556,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .{};
 
                     // True if this cell is selected
-                    const selected: bool = selected: {
-                        const sel = selection orelse break :selected false;
+                    const selected: enum {
+                        false,
+                        selection,
+                        search,
+                    } = selected: {
+                        // If we're highlighted, then we're selected. In the
+                        // future we want to use a different style for this
+                        // but this to get started.
+                        for (highlights.items) |hl| {
+                            if (x >= hl[0] and x <= hl[1]) {
+                                break :selected .search;
+                            }
+                        }
+
+                        const sel = selection orelse break :selected .false;
                         const x_compare = if (wide == .spacer_tail)
                             x -| 1
                         else
                             x;
 
-                        break :selected x_compare >= sel[0] and
-                            x_compare <= sel[1];
+                        if (x_compare >= sel[0] and
+                            x_compare <= sel[1]) break :selected .selection;
+
+                        break :selected .false;
                     };
 
                     // The `_style` suffixed values are the colors based on
@@ -2538,25 +2596,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     });
 
                     // The final background color for the cell.
-                    const bg = bg: {
-                        if (selected) {
-                            // If we have an explicit selection background color
-                            // specified int he config, use that
-                            if (self.config.selection_background) |v| {
-                                break :bg switch (v) {
-                                    .color => |color| color.toTerminalRGB(),
-                                    .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
-                                    .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
-                                };
-                            }
+                    const bg = switch (selected) {
+                        // If we have an explicit selection background color
+                        // specified in the config, use that.
+                        //
+                        // If no configuration, then our selection background
+                        // is our foreground color.
+                        .selection => if (self.config.selection_background) |v| switch (v) {
+                            .color => |color| color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
+                        } else state.colors.foreground,
 
-                            // If no configuration, then our selection background
-                            // is our foreground color.
-                            break :bg state.colors.foreground;
-                        }
+                        .search => switch (self.config.search_background) {
+                            .color => |color| color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
+                        },
 
                         // Not selected
-                        break :bg if (style.flags.inverse != isCovering(cell.codepoint()))
+                        .false => if (style.flags.inverse != isCovering(cell.codepoint()))
                             // Two cases cause us to invert (use the fg color as the bg)
                             // - The "inverse" style flag.
                             // - A "covering" glyph; we use fg for bg in that
@@ -2568,7 +2627,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             fg_style
                         else
                             // Otherwise they cancel out.
-                            bg_style;
+                            bg_style,
                     };
 
                     const fg = fg: {
@@ -2580,23 +2639,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // - Cell is selected, inverted, and set to cell-foreground
                         // - Cell is selected, not inverted, and set to cell-background
                         // - Cell is inverted and not selected
-                        if (selected) {
-                            // Use the selection foreground if set
-                            if (self.config.selection_foreground) |v| {
-                                break :fg switch (v) {
-                                    .color => |color| color.toTerminalRGB(),
-                                    .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
-                                    .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
-                                };
-                            }
+                        break :fg switch (selected) {
+                            .selection => if (self.config.selection_foreground) |v| switch (v) {
+                                .color => |color| color.toTerminalRGB(),
+                                .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                                .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                            } else state.colors.background,
 
-                            break :fg state.colors.background;
-                        }
+                            .search => switch (self.config.search_foreground) {
+                                .color => |color| color.toTerminalRGB(),
+                                .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                                .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                            },
 
-                        break :fg if (style.flags.inverse)
-                            final_bg
-                        else
-                            fg_style;
+                            .false => if (style.flags.inverse)
+                                final_bg
+                            else
+                                fg_style,
+                        };
                     };
 
                     // Foreground alpha for this cell.
@@ -2614,7 +2674,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             const default: u8 = 255;
 
                             // Cells that are selected should be fully opaque.
-                            if (selected) break :bg_alpha default;
+                            if (selected != .false) break :bg_alpha default;
 
                             // Cells that are reversed should be fully opaque.
                             if (style.flags.inverse) break :bg_alpha default;
@@ -2782,18 +2842,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Setup our cursor rendering information.
             cursor: {
-                // By default, we don't handle cursor inversion on the shader.
+                // Clear our cursor by default.
                 self.cells.setCursor(null, null);
                 self.uniforms.cursor_pos = .{
                     std.math.maxInt(u16),
                     std.math.maxInt(u16),
                 };
 
+                // If the cursor isn't visible on the viewport, don't show
+                // a cursor. Otherwise, get our cursor cell, because we may
+                // need it for styling.
+                const cursor_vp = state.cursor.viewport orelse break :cursor;
+                const cursor_style: terminal.Style = cursor_style: {
+                    const cells = state.row_data.items(.cells);
+                    const cell = cells[cursor_vp.y].get(cursor_vp.x);
+                    break :cursor_style if (cell.raw.hasStyling())
+                        cell.style
+                    else
+                        .{};
+                };
+
                 // If we have preedit text, we don't setup a cursor
                 if (preedit != null) break :cursor;
 
-                // Prepare the cursor cell contents.
+                // If there isn't a cursor visual style requested then
+                // we don't render a cursor.
                 const style = cursor_style_ orelse break :cursor;
+
+                // Determine the cursor color.
                 const cursor_color = cursor_color: {
                     // If an explicit cursor color was set by OSC 12, use that.
                     if (state.colors.cursor) |v| break :cursor_color v;
@@ -2801,24 +2877,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // Use our configured color if specified
                     if (self.config.cursor_color) |v| switch (v) {
                         .color => |color| break :cursor_color color.toTerminalRGB(),
+
                         inline .@"cell-foreground",
                         .@"cell-background",
                         => |_, tag| {
-                            const sty: terminal.Style = state.cursor.style;
-                            const fg_style = sty.fg(.{
+                            const fg_style = cursor_style.fg(.{
                                 .default = state.colors.foreground,
                                 .palette = &state.colors.palette,
                                 .bold = self.config.bold_color,
                             });
-                            const bg_style = sty.bg(
+                            const bg_style = cursor_style.bg(
                                 &state.cursor.cell,
                                 &state.colors.palette,
                             ) orelse state.colors.background;
 
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
-                                .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
-                                .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                                .@"cell-foreground" => if (cursor_style.flags.inverse)
+                                    bg_style
+                                else
+                                    fg_style,
+                                .@"cell-background" => if (cursor_style.flags.inverse)
+                                    fg_style
+                                else
+                                    bg_style,
                             };
                         },
                     };
@@ -2833,9 +2915,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 );
 
                 // If the cursor is visible then we set our uniforms.
-                if (style == .block) cursor_uniforms: {
-                    const cursor_vp = state.cursor.viewport orelse
-                        break :cursor_uniforms;
+                if (style == .block) {
                     const wide = state.cursor.cell.wide;
 
                     self.uniforms.cursor_pos = .{
@@ -2862,21 +2942,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             break :blk txt.color.toTerminalRGB();
                         }
 
-                        const sty = state.cursor.style;
-                        const fg_style = sty.fg(.{
+                        const fg_style = cursor_style.fg(.{
                             .default = state.colors.foreground,
                             .palette = &state.colors.palette,
                             .bold = self.config.bold_color,
                         });
-                        const bg_style = sty.bg(
+                        const bg_style = cursor_style.bg(
                             &state.cursor.cell,
                             &state.colors.palette,
                         ) orelse state.colors.background;
 
                         break :blk switch (txt) {
                             // If the cell is reversed, use the opposite cell color instead.
-                            .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
-                            .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                            .@"cell-foreground" => if (cursor_style.flags.inverse)
+                                bg_style
+                            else
+                                fg_style,
+                            .@"cell-background" => if (cursor_style.flags.inverse)
+                                fg_style
+                            else
+                                bg_style,
                             else => unreachable,
                         };
                     } else state.colors.background;

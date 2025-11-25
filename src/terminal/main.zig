@@ -15,6 +15,7 @@ pub const point = @import("point.zig");
 pub const color = @import("color.zig");
 pub const device_status = @import("device_status.zig");
 pub const formatter = @import("formatter.zig");
+pub const highlight = @import("highlight.zig");
 pub const kitty = @import("kitty.zig");
 pub const modes = @import("modes.zig");
 pub const page = @import("page.zig");

@@ -978,6 +978,20 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
+/// The foreground and background color for search matches. This only applies
+/// to non-focused search matches, also known as candidate matches.
+///
+/// Valid values:
+///
+///   - Hex (`#RRGGBB` or `RRGGBB`)
+///   - Named X11 color
+///   - "cell-foreground" to match the cell foreground color
+///   - "cell-background" to match the cell background color
+///
+/// The default value is
+@"search-foreground": TerminalColor = .{ .color = .{ .r = 0, .g = 0, .b = 0 } },
+@"search-background": TerminalColor = .{ .color = .{ .r = 0xFF, .g = 0xE0, .b = 0x82 } },
+
 /// The command to run, usually a shell. If this is not an absolute path, it'll
 /// be looked up in the `PATH`. If this is not set, a default will be looked up
 /// from your system. The rules for the default lookup are:

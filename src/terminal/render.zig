@@ -5,6 +5,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
 const cursor = @import("cursor.zig");
+const highlight = @import("highlight.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
@@ -191,6 +192,10 @@ pub const RenderState = struct {
 
         /// The x range of the selection within this row.
         selection: ?[2]size.CellCountInt,
+
+        /// The x ranges of highlights within this row. Highlights are
+        /// applied after the update by calling `updateHighlights`.
+        highlights: std.ArrayList([2]size.CellCountInt),
     };
 
     pub const Cell = struct {
@@ -348,6 +353,7 @@ pub const RenderState = struct {
                         .cells = .empty,
                         .dirty = true,
                         .selection = null,
+                        .highlights = .empty,
                     });
                 }
             } else {
@@ -628,6 +634,76 @@ pub const RenderState = struct {
         // Clear our dirty flags
         t.flags.dirty = .{};
         s.dirty = .{};
+    }
+
+    /// Update the highlights in the render state from the given flattened
+    /// highlights. Because this uses flattened highlights, it does not require
+    /// reading from the terminal state so it should be done outside of
+    /// any critical sections.
+    ///
+    /// This will not clear any previous highlights, so the caller must
+    /// manually clear them if desired.
+    pub fn updateHighlightsFlattened(
+        self: *RenderState,
+        alloc: Allocator,
+        hls: []const highlight.Flattened,
+    ) Allocator.Error!void {
+        // Fast path, we have no highlights!
+        if (hls.len == 0) return;
+
+        // This is, admittedly, horrendous. This is some low hanging fruit
+        // to optimize. In my defense, screens are usually small, the number
+        // of highlights is usually small, and this only happens on the
+        // viewport outside of a locked area. Still, I'd love to see this
+        // improved someday.
+
+        // We need to track whether any row had a match so we can mark
+        // the dirty state.
+        var any_dirty: bool = false;
+
+        const row_data = self.row_data.slice();
+        const row_arenas = row_data.items(.arena);
+        const row_dirties = row_data.items(.dirty);
+        const row_pins = row_data.items(.pin);
+        const row_highlights_slice = row_data.items(.highlights);
+        for (
+            row_arenas,
+            row_pins,
+            row_highlights_slice,
+            row_dirties,
+        ) |*row_arena, row_pin, *row_highlights, *dirty| {
+            for (hls) |hl| {
+                const chunks_slice = hl.chunks.slice();
+                const nodes = chunks_slice.items(.node);
+                const starts = chunks_slice.items(.start);
+                const ends = chunks_slice.items(.end);
+                for (0.., nodes) |i, node| {
+                    // If this node doesn't match or we're not within
+                    // the row range, skip it.
+                    if (node != row_pin.node or
+                        row_pin.y < starts[i] or
+                        row_pin.y >= ends[i]) continue;
+
+                    // We're a match!
+                    var arena = row_arena.promote(alloc);
+                    defer row_arena.* = arena.state;
+                    const arena_alloc = arena.allocator();
+                    try row_highlights.append(
+                        arena_alloc,
+                        .{
+                            if (i == 0) hl.top_x else 0,
+                            if (i == nodes.len - 1) hl.bot_x else self.cols - 1,
+                        },
+                    );
+
+                    dirty.* = true;
+                    any_dirty = true;
+                }
+            }
+        }
+
+        // Mark our dirty state.
+        if (any_dirty and self.dirty == .false) self.dirty = .partial;
     }
 
     pub const StringMap = std.ArrayListUnmanaged(point.Coordinate);

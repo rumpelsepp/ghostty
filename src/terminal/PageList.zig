@@ -3729,7 +3729,11 @@ pub const PageIterator = struct {
 
     pub const Chunk = struct {
         node: *List.Node,
+
+        /// Start y index (inclusive) of this chunk in the page.
         start: size.CellCountInt,
+
+        /// End y index (exclusive) of this chunk in the page.
         end: size.CellCountInt,
 
         pub fn rows(self: Chunk) []Row {
