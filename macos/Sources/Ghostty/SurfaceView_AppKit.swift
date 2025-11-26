@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import CoreText
 import UserNotifications
@@ -63,6 +64,43 @@ extension Ghostty {
 
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
+
+        // The current search state. When non-nil, the search overlay should be shown.
+        @Published var searchState: SearchState? = nil {
+            didSet {
+                if let searchState {
+                    // I'm not a Combine expert so if there is a better way to do this I'm
+                    // all ears. What we're doing here is grabbing the latest needle. If the
+                    // needle is less than 3 chars, we debounce it for a few hundred ms to
+                    // avoid kicking off expensive searches.
+                    searchNeedleCancellable = searchState.$needle
+                        .removeDuplicates()
+                        .map { needle -> AnyPublisher<String, Never> in
+                            if needle.isEmpty || needle.count >= 3 {
+                                return Just(needle).eraseToAnyPublisher()
+                            } else {
+                                return Just(needle)
+                                    .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+                                    .eraseToAnyPublisher()
+                            }
+                        }
+                        .switchToLatest()
+                        .sink { [weak self] needle in
+                            guard let surface = self?.surface else { return }
+                            let action = "search:\(needle)"
+                            ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                        }
+                } else if oldValue != nil {
+                    searchNeedleCancellable = nil
+                    guard let surface = self.surface else { return }
+                    let action = "end_search"
+                    ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                }
+            }
+        }
+        
+        // Cancellable for search state needle changes
+        private var searchNeedleCancellable: AnyCancellable?
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
@@ -1410,7 +1448,7 @@ extension Ghostty {
         @IBAction func copy(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "copy_to_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1418,7 +1456,7 @@ extension Ghostty {
         @IBAction func paste(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1427,7 +1465,7 @@ extension Ghostty {
         @IBAction func pasteAsPlainText(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1435,7 +1473,7 @@ extension Ghostty {
         @IBAction func pasteSelection(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_selection"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1443,7 +1481,39 @@ extension Ghostty {
         @IBAction override func selectAll(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "select_all"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+        
+        @IBAction func find(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "start_search"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+        
+        @IBAction func findNext(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "search:next"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        @IBAction func findPrevious(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "search:previous"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+        
+        @IBAction func findHide(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "end_search"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1471,7 +1541,7 @@ extension Ghostty {
         @objc func resetTerminal(_ sender: Any) {
             guard let surface = self.surface else { return }
             let action = "reset"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1479,7 +1549,7 @@ extension Ghostty {
         @objc func toggleTerminalInspector(_ sender: Any) {
             guard let surface = self.surface else { return }
             let action = "inspector:toggle"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1920,6 +1990,9 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             let pb = NSPasteboard.ghosttySelection
             guard let str = pb.getOpinionatedStringContents() else { return false }
             return !str.isEmpty
+            
+        case #selector(findHide):
+            return searchState != nil
 
         default:
             return true

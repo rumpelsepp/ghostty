@@ -333,8 +333,23 @@ pub const Action = union(enum) {
     set_font_size: f32,
 
     /// Start a search for the given text. If the text is empty, then
-    /// the search is canceled. If a previous search is active, it is replaced.
+    /// the search is canceled. A canceled search will not disable any GUI
+    /// elements showing search. For that, the explicit end_search binding
+    /// should be used.
+    ///
+    /// If a previous search is active, it is replaced.
     search: []const u8,
+
+    /// Navigate the search results. If there is no active search, this
+    /// is not performed.
+    navigate_search: NavigateSearch,
+
+    /// Start a search if it isn't started already. This doesn't set any
+    /// search terms, but opens the UI for searching.
+    start_search,
+
+    /// End the current search if any and hide any GUI elements.
+    end_search,
 
     /// Clear the screen and all scrollback.
     clear_screen,
@@ -826,6 +841,11 @@ pub const Action = union(enum) {
         }
     };
 
+    pub const NavigateSearch = enum {
+        previous,
+        next,
+    };
+
     pub const AdjustSelection = enum {
         left,
         right,
@@ -1157,6 +1177,9 @@ pub const Action = union(enum) {
             .text,
             .cursor_key,
             .search,
+            .navigate_search,
+            .start_search,
+            .end_search,
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,

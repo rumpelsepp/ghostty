@@ -804,6 +804,14 @@ pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
 }
 
+/// Returns a mailbox that can be used to send messages to this surface.
+inline fn surfaceMailbox(self: *Surface) Mailbox {
+    return .{
+        .surface = self,
+        .app = .{ .rt_app = self.rt_app, .mailbox = &self.app.mailbox },
+    };
+}
+
 /// Forces the surface to render. This is useful for when the surface
 /// is in the middle of animation (such as a resize, etc.) or when
 /// the render timer is managed manually by the apprt.
@@ -1068,6 +1076,22 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             ) catch |err| {
                 log.warn("apprt failed to notify command finish={}", .{err});
             };
+        },
+
+        .search_total => |v| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .search_total,
+                .{ .total = v },
+            );
+        },
+
+        .search_selected => |v| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .search_selected,
+                .{ .selected = v },
+            );
         },
     }
 }
@@ -1363,8 +1387,57 @@ fn searchCallback_(
             try self.renderer_thread.wakeup.notify();
         },
 
+        .selected_match => |selected_| {
+            if (selected_) |sel| {
+                // Copy the flattened match.
+                var arena: ArenaAllocator = .init(self.alloc);
+                errdefer arena.deinit();
+                const alloc = arena.allocator();
+                const match = try sel.highlight.clone(alloc);
+
+                _ = self.renderer_thread.mailbox.push(
+                    .{ .search_selected_match = .{
+                        .arena = arena,
+                        .match = match,
+                    } },
+                    .forever,
+                );
+
+                // Send the selected index to the surface mailbox
+                _ = self.surfaceMailbox().push(
+                    .{ .search_selected = sel.idx },
+                    .forever,
+                );
+            } else {
+                // Reset our selected match
+                _ = self.renderer_thread.mailbox.push(
+                    .{ .search_selected_match = null },
+                    .forever,
+                );
+
+                // Reset the selected index
+                _ = self.surfaceMailbox().push(
+                    .{ .search_selected = null },
+                    .forever,
+                );
+            }
+
+            try self.renderer_thread.wakeup.notify();
+        },
+
+        .total_matches => |total| {
+            _ = self.surfaceMailbox().push(
+                .{ .search_total = total },
+                .forever,
+            );
+        },
+
         // When we quit, tell our renderer to reset any search state.
         .quit => {
+            _ = self.renderer_thread.mailbox.push(
+                .{ .search_selected_match = null },
+                .forever,
+            );
             _ = self.renderer_thread.mailbox.push(
                 .{ .search_viewport_matches = .{
                     .arena = .init(self.alloc),
@@ -1373,12 +1446,20 @@ fn searchCallback_(
                 .forever,
             );
             try self.renderer_thread.wakeup.notify();
+
+            // Reset search totals in the surface
+            _ = self.surfaceMailbox().push(
+                .{ .search_total = null },
+                .forever,
+            );
+            _ = self.surfaceMailbox().push(
+                .{ .search_selected = null },
+                .forever,
+            );
         },
 
         // Unhandled, so far.
-        .total_matches,
-        .complete,
-        => {},
+        .complete => {},
     }
 }
 
@@ -4851,11 +4932,42 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.terminal.fullReset();
         },
 
+        .start_search => {
+            // To save resources, we don't actually start a search here,
+            // we just notify the apprt. The real thread will start when
+            // the first needles are set.
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .start_search,
+                .{ .needle = "" },
+            );
+        },
+
+        .end_search => {
+            // We only return that this was performed if we actually
+            // stopped a search, but we also send the apprt end_search so
+            // that GUIs can clean up stale stuff.
+            const performed = self.search != null;
+
+            if (self.search) |*s| {
+                s.deinit();
+                self.search = null;
+            }
+
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .end_search,
+                {},
+            );
+
+            return performed;
+        },
+
         .search => |text| search: {
             const s: *Search = if (self.search) |*s| s else init: {
                 // If we're stopping the search and we had no prior search,
                 // then there is nothing to do.
-                if (text.len == 0) break :search;
+                if (text.len == 0) return false;
 
                 // We need to assign directly to self.search because we need
                 // a stable pointer back to the thread state.
@@ -4889,9 +5001,25 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }
 
             _ = s.state.mailbox.push(
-                .{ .change_needle = text },
+                .{ .change_needle = try .init(
+                    self.alloc,
+                    text,
+                ) },
                 .forever,
             );
+            s.state.wakeup.notify() catch {};
+        },
+
+        .navigate_search => |nav| {
+            const s: *Search = if (self.search) |*s| s else return false;
+            _ = s.state.mailbox.push(
+                .{ .select = switch (nav) {
+                    .next => .next,
+                    .previous => .prev,
+                } },
+                .forever,
+            );
+            s.state.wakeup.notify() catch {};
         },
 
         .copy_to_clipboard => |format| {

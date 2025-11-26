@@ -115,6 +115,18 @@ extension Ghostty.Action {
             len = c.len
         }
     }
+
+    struct StartSearch {
+        let needle: String?
+        
+        init(c: ghostty_action_start_search_s) {
+            if let needleCString = c.needle {
+                self.needle = String(cString: needleCString)
+            } else {
+                self.needle = nil
+            }
+        }
+    }
 }
 
 // Putting the initializer in an extension preserves the automatic one.

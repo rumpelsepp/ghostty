@@ -743,6 +743,10 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
+            .start_search,
+            .end_search,
+            .search_total,
+            .search_selected,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;

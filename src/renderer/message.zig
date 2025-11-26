@@ -58,6 +58,10 @@ pub const Message = union(enum) {
     /// viewport. The renderer must handle this gracefully.
     search_viewport_matches: SearchMatches,
 
+    /// The selected match from the search thread. May be null to indicate
+    /// no match currently.
+    search_selected_match: ?SearchMatch,
+
     /// Activate or deactivate the inspector.
     inspector: bool,
 
@@ -67,6 +71,11 @@ pub const Message = union(enum) {
     pub const SearchMatches = struct {
         arena: ArenaAllocator,
         matches: []const terminal.highlight.Flattened,
+    };
+
+    pub const SearchMatch = struct {
+        arena: ArenaAllocator,
+        match: terminal.highlight.Flattened,
     };
 
     /// Initialize a change_config message.

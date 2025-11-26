@@ -109,7 +109,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     var stream = self.terminal.vtStream();
     defer stream.deinit();
 
-    var read_buf: [4096]u8 = undefined;
+    var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     var f_reader = data_f.reader(&read_buf);
     const r = &f_reader.interface;
 

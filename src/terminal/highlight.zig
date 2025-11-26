@@ -32,6 +32,21 @@ const Screen = @import("Screen.zig");
 pub const Untracked = struct {
     start: Pin,
     end: Pin,
+
+    pub fn track(
+        self: *const Untracked,
+        screen: *Screen,
+    ) Allocator.Error!Tracked {
+        return try .init(
+            screen,
+            self.start,
+            self.end,
+        );
+    }
+
+    pub fn eql(self: Untracked, other: Untracked) bool {
+        return self.start.eql(other.start) and self.end.eql(other.end);
+    }
 };
 
 /// A tracked highlight is a highlight that stores its highlighted
@@ -99,7 +114,7 @@ pub const Flattened = struct {
     /// The page chunks that make up this highlight. This handles the
     /// y bounds since chunks[0].start is the first highlighted row
     /// and chunks[len - 1].end is the last highlighted row (exclsive).
-    chunks: std.MultiArrayList(PageChunk),
+    chunks: std.MultiArrayList(Chunk),
 
     /// The x bounds of the highlight. `bot_x` may be less than `top_x`
     /// for typical left-to-right highlights: can start the selection right
@@ -107,8 +122,16 @@ pub const Flattened = struct {
     top_x: size.CellCountInt,
     bot_x: size.CellCountInt,
 
-    /// Exposed for easier type references.
-    pub const Chunk = PageChunk;
+    /// A flattened chunk is almost identical to a PageList.Chunk but
+    /// we also flatten the serial number. This lets the flattened
+    /// highlight more robust for comparisons and validity checks with
+    /// the PageList.
+    pub const Chunk = struct {
+        node: *PageList.List.Node,
+        serial: u64,
+        start: size.CellCountInt,
+        end: size.CellCountInt,
+    };
 
     pub const empty: Flattened = .{
         .chunks = .empty,
@@ -124,7 +147,12 @@ pub const Flattened = struct {
         var result: std.MultiArrayList(PageChunk) = .empty;
         errdefer result.deinit(alloc);
         var it = start.pageIterator(.right_down, end);
-        while (it.next()) |chunk| try result.append(alloc, chunk);
+        while (it.next()) |chunk| try result.append(alloc, .{
+            .node = chunk.node,
+            .serial = chunk.node.serial,
+            .start = chunk.start,
+            .end = chunk.end,
+        });
         return .{
             .chunks = result,
             .top_x = start.x,
@@ -144,8 +172,19 @@ pub const Flattened = struct {
         };
     }
 
+    pub fn startPin(self: Flattened) Pin {
+        const slice = self.chunks.slice();
+        return .{
+            .node = slice.items(.node)[0],
+            .x = self.top_x,
+            .y = slice.items(.start)[0],
+        };
+    }
+
     /// Convert to an Untracked highlight.
     pub fn untracked(self: Flattened) Untracked {
+        // Note: we don't use startPin/endPin here because it is slightly
+        // faster to reuse the slices.
         const slice = self.chunks.slice();
         const nodes = slice.items(.node);
         const starts = slice.items(.start);

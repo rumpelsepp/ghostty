@@ -301,6 +301,18 @@ pub const Action = union(Key) {
     /// A command has finished,
     command_finished: CommandFinished,
 
+    /// Start the search overlay with an optional initial needle.
+    start_search: StartSearch,
+
+    /// End the search overlay, clearing the search state and hiding it.
+    end_search,
+
+    /// The total number of matches found by the search.
+    search_total: SearchTotal,
+
+    /// The currently selected search match index (1-based).
+    search_selected: SearchSelected,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -358,6 +370,10 @@ pub const Action = union(Key) {
         progress_report,
         show_on_screen_keyboard,
         command_finished,
+        start_search,
+        end_search,
+        search_total,
+        search_selected,
     };
 
     /// Sync with: ghostty_action_u
@@ -767,6 +783,51 @@ pub const CommandFinished = struct {
         return .{
             .exit_code = self.exit_code orelse -1,
             .duration = self.duration.duration,
+        };
+    }
+};
+
+pub const StartSearch = struct {
+    needle: [:0]const u8,
+
+    // Sync with: ghostty_action_start_search_s
+    pub const C = extern struct {
+        needle: [*:0]const u8,
+    };
+
+    pub fn cval(self: StartSearch) C {
+        return .{
+            .needle = self.needle.ptr,
+        };
+    }
+};
+
+pub const SearchTotal = struct {
+    total: ?usize,
+
+    // Sync with: ghostty_action_search_total_s
+    pub const C = extern struct {
+        total: isize,
+    };
+
+    pub fn cval(self: SearchTotal) C {
+        return .{
+            .total = if (self.total) |t| @intCast(t) else -1,
+        };
+    }
+};
+
+pub const SearchSelected = struct {
+    selected: ?usize,
+
+    // Sync with: ghostty_action_search_selected_s
+    pub const C = extern struct {
+        selected: isize,
+    };
+
+    pub fn cval(self: SearchSelected) C {
+        return .{
+            .selected = if (self.selected) |s| @intCast(s) else -1,
         };
     }
 };

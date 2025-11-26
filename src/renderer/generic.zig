@@ -130,6 +130,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Note that the selections MAY BE INVALID (point to PageList nodes
         /// that do not exist anymore). These must be validated prior to use.
         search_matches: ?renderer.Message.SearchMatches,
+        search_selected_match: ?renderer.Message.SearchMatch,
         search_matches_dirty: bool,
 
         /// The current set of cells to render. This is rebuilt on every frame
@@ -221,6 +222,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// 15 minutes at 120Hz) to prevent wasted memory buildup from
         /// a large screen.
         terminal_state_frame_count: usize = 0,
+
+        const HighlightTag = enum(u8) {
+            search_match,
+            search_match_selected,
+        };
 
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
@@ -539,6 +545,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             selection_foreground: ?configpkg.Config.TerminalColor,
             search_background: configpkg.Config.TerminalColor,
             search_foreground: configpkg.Config.TerminalColor,
+            search_selected_background: configpkg.Config.TerminalColor,
+            search_selected_foreground: configpkg.Config.TerminalColor,
             bold_color: ?configpkg.BoldColor,
             faint_opacity: u8,
             min_contrast: f32,
@@ -612,6 +620,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .selection_foreground = config.@"selection-foreground",
                     .search_background = config.@"search-background",
                     .search_foreground = config.@"search-foreground",
+                    .search_selected_background = config.@"search-selected-background",
+                    .search_selected_foreground = config.@"search-selected-foreground",
 
                     .custom_shaders = custom_shaders,
                     .bg_image = bg_image,
@@ -687,6 +697,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
                 .search_matches = null,
+                .search_selected_match = null,
                 .search_matches_dirty = false,
 
                 // Render state
@@ -760,6 +771,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         pub fn deinit(self: *Self) void {
             self.terminal_state.deinit(self.alloc);
+            if (self.search_selected_match) |*m| m.arena.deinit();
             if (self.search_matches) |*m| m.arena.deinit();
             self.swap_chain.deinit();
 
@@ -1205,13 +1217,41 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (self.search_matches_dirty or self.terminal_state.dirty != .false) {
                 self.search_matches_dirty = false;
 
-                for (self.terminal_state.row_data.items(.highlights)) |*highlights| {
-                    highlights.clearRetainingCapacity();
+                // Clear the prior highlights
+                const row_data = self.terminal_state.row_data.slice();
+                var any_dirty: bool = false;
+                for (
+                    row_data.items(.highlights),
+                    row_data.items(.dirty),
+                ) |*highlights, *dirty| {
+                    if (highlights.items.len > 0) {
+                        highlights.clearRetainingCapacity();
+                        dirty.* = true;
+                        any_dirty = true;
+                    }
+                }
+                if (any_dirty and self.terminal_state.dirty == .false) {
+                    self.terminal_state.dirty = .partial;
+                }
+
+                // NOTE: The order below matters. Highlights added earlier
+                // will take priority.
+
+                if (self.search_selected_match) |m| {
+                    self.terminal_state.updateHighlightsFlattened(
+                        self.alloc,
+                        @intFromEnum(HighlightTag.search_match_selected),
+                        &.{m.match},
+                    ) catch |err| {
+                        // Not a critical error, we just won't show highlights.
+                        log.warn("error updating search selected highlight err={}", .{err});
+                    };
                 }
 
                 if (self.search_matches) |m| {
                     self.terminal_state.updateHighlightsFlattened(
                         self.alloc,
+                        @intFromEnum(HighlightTag.search_match),
                         m.matches,
                     ) catch |err| {
                         // Not a critical error, we just won't show highlights.
@@ -2560,24 +2600,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         false,
                         selection,
                         search,
+                        search_selected,
                     } = selected: {
-                        // If we're highlighted, then we're selected. In the
-                        // future we want to use a different style for this
-                        // but this to get started.
-                        for (highlights.items) |hl| {
-                            if (x >= hl[0] and x <= hl[1]) {
-                                break :selected .search;
-                            }
-                        }
+                        // Order below matters for precedence.
 
-                        const sel = selection orelse break :selected .false;
+                        // Selection should take the highest precedence.
                         const x_compare = if (wide == .spacer_tail)
                             x -| 1
                         else
                             x;
+                        if (selection) |sel| {
+                            if (x_compare >= sel[0] and
+                                x_compare <= sel[1]) break :selected .selection;
+                        }
 
-                        if (x_compare >= sel[0] and
-                            x_compare <= sel[1]) break :selected .selection;
+                        // If we're highlighted, then we're selected. In the
+                        // future we want to use a different style for this
+                        // but this to get started.
+                        for (highlights.items) |hl| {
+                            if (x_compare >= hl.range[0] and
+                                x_compare <= hl.range[1])
+                            {
+                                const tag: HighlightTag = @enumFromInt(hl.tag);
+                                break :selected switch (tag) {
+                                    .search_match => .search,
+                                    .search_match_selected => .search_selected,
+                                };
+                            }
+                        }
 
                         break :selected .false;
                     };
@@ -2609,6 +2659,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         } else state.colors.foreground,
 
                         .search => switch (self.config.search_background) {
+                            .color => |color| color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
+                        },
+
+                        .search_selected => switch (self.config.search_selected_background) {
                             .color => |color| color.toTerminalRGB(),
                             .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
                             .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
@@ -2647,6 +2703,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             } else state.colors.background,
 
                             .search => switch (self.config.search_foreground) {
+                                .color => |color| color.toTerminalRGB(),
+                                .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                                .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                            },
+
+                            .search_selected => switch (self.config.search_selected_foreground) {
                                 .color => |color| color.toTerminalRGB(),
                                 .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
                                 .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,

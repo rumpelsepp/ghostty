@@ -3373,12 +3373,16 @@ const Clipboard = struct {
                         // text/plain type. The default charset when there is
                         // none is ASCII, and lots of things look for UTF-8
                         // specifically.
+                        // The specs are not clear about the order here, but
+                        // some clients apparently pick the first match in the
+                        // order we set here then garble up bare 'text/plain'
+                        // with non-ASCII UTF-8 content, so offer UTF-8 first.
                         //
                         // Note that under X11, GTK automatically adds the
                         // UTF8_STRING atom when this is present.
                         const text_provider_atoms = [_][:0]const u8{
-                            "text/plain",
                             "text/plain;charset=utf-8",
+                            "text/plain",
                         };
                         var text_providers: [text_provider_atoms.len]*gdk.ContentProvider = undefined;
                         for (text_provider_atoms, 0..) |atom, j| {

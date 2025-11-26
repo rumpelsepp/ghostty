@@ -1403,8 +1403,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
 // MARK: NSMenuItemValidation
 
-extension TerminalController: NSMenuItemValidation {
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+extension TerminalController {
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(returnToDefaultSize):
             guard let window else { return false }
@@ -1433,7 +1433,7 @@ extension TerminalController: NSMenuItemValidation {
             return true
 
         default:
-            return true
+            return super.validateMenuItem(item)
         }
     }
 }

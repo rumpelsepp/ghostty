@@ -44,6 +44,7 @@ struct CommandPaletteView: View {
     @State private var query = ""
     @State private var selectedIndex: UInt?
     @State private var hoveredOptionID: UUID?
+    @FocusState private var isTextFieldFocused: Bool
 
     // The options that we should show, taking into account any filtering from
     // the query.
@@ -72,7 +73,7 @@ struct CommandPaletteView: View {
         }
 
         VStack(alignment: .leading, spacing: 0) {
-            CommandPaletteQuery(query: $query) { event in
+            CommandPaletteQuery(query: $query, isTextFieldFocused: _isTextFieldFocused) { event in
                 switch (event) {
                 case .exit:
                     isPresented = false
@@ -144,6 +145,28 @@ struct CommandPaletteView: View {
         .shadow(radius: 32, x: 0, y: 12)
         .padding()
         .environment(\.colorScheme, scheme)
+        .onChange(of: isPresented) { newValue in
+            // Reset focus when quickly showing and hiding.
+            // macOS will destroy this view after a while,
+            // so task/onAppear will not be called again.
+            // If you toggle it rather quickly, we reset
+            // it here when dismissing.
+            isTextFieldFocused = newValue
+            if !isPresented {
+                // This is optional, since most of the time
+                // there will be a delay before the next use.
+                // To keep behavior the same as before, we reset it.
+                query = ""
+            }
+        }
+        .task {
+            // Grab focus on the first appearance.
+            // This happens right after onAppear,
+            // so we don’t need to dispatch it again.
+            // Fixes: https://github.com/ghostty-org/ghostty/issues/8497
+            // Also fixes initial focus while animating.
+            isTextFieldFocused = isPresented
+        }
     }
 }
 
@@ -152,6 +175,12 @@ fileprivate struct CommandPaletteQuery: View {
     @Binding var query: String
     var onEvent: ((KeyboardEvent) -> Void)? = nil
     @FocusState private var isTextFieldFocused: Bool
+
+    init(query: Binding<String>, isTextFieldFocused: FocusState<Bool>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
+        _query = query
+        self.onEvent = onEvent
+        _isTextFieldFocused = isTextFieldFocused
+    }
 
     enum KeyboardEvent {
         case exit
@@ -185,14 +214,6 @@ fileprivate struct CommandPaletteQuery: View {
                 .frame(height: 48)
                 .textFieldStyle(.plain)
                 .focused($isTextFieldFocused)
-                .onAppear {
-                    // We want to grab focus on appearance. We have to do this after a tick
-                    // on macOS Tahoe otherwise this doesn't work. See:
-                    // https://github.com/ghostty-org/ghostty/issues/8497
-                    DispatchQueue.main.async {
-                        isTextFieldFocused = true
-                    }
-                }
                 .onChange(of: isTextFieldFocused) { focused in
                     if !focused {
                         onEvent?(.exit)

@@ -87,6 +87,7 @@ pub const SlidingWindow = struct {
     const MetaBuf = CircBuf(Meta, undefined);
     const Meta = struct {
         node: *PageList.List.Node,
+        serial: u64,
         cell_map: std.ArrayList(point.Coordinate),
 
         pub fn deinit(self: *Meta, alloc: Allocator) void {
@@ -221,10 +222,17 @@ pub const SlidingWindow = struct {
             );
         }
 
+        // Special case 1-lengthed needles to delete the entire buffer.
+        if (self.needle.len == 1) {
+            self.clearAndRetainCapacity();
+            self.assertIntegrity();
+            return null;
+        }
+
         // No match. We keep `needle.len - 1` bytes available to
         // handle the future overlap case.
-        var meta_it = self.meta.iterator(.reverse);
         prune: {
+            var meta_it = self.meta.iterator(.reverse);
             var saved: usize = 0;
             while (meta_it.next()) |meta| {
                 const needed = self.needle.len - 1 - saved;
@@ -345,6 +353,7 @@ pub const SlidingWindow = struct {
                     result.bot_x = end_map.x;
                     self.chunk_buf.appendAssumeCapacity(.{
                         .node = meta.node,
+                        .serial = meta.serial,
                         .start = @intCast(start_map.y),
                         .end = @intCast(end_map.y + 1),
                     });
@@ -363,6 +372,7 @@ pub const SlidingWindow = struct {
                     result.top_x = map.x;
                     self.chunk_buf.appendAssumeCapacity(.{
                         .node = meta.node,
+                        .serial = meta.serial,
                         .start = @intCast(map.y),
                         .end = meta.node.data.size.rows,
                     });
@@ -397,6 +407,7 @@ pub const SlidingWindow = struct {
                     // to our results because we want the full flattened list.
                     self.chunk_buf.appendAssumeCapacity(.{
                         .node = meta.node,
+                        .serial = meta.serial,
                         .start = 0,
                         .end = meta.node.data.size.rows,
                     });
@@ -410,6 +421,7 @@ pub const SlidingWindow = struct {
                 result.bot_x = map.x;
                 self.chunk_buf.appendAssumeCapacity(.{
                     .node = meta.node,
+                    .serial = meta.serial,
                     .start = 0,
                     .end = @intCast(map.y + 1),
                 });
@@ -513,6 +525,7 @@ pub const SlidingWindow = struct {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
+            .serial = node.serial,
             .cell_map = .empty,
         };
         errdefer meta.deinit(self.alloc);
@@ -600,7 +613,7 @@ pub const SlidingWindow = struct {
         assert(data_len == self.data.len());
 
         // Integrity check: verify our data offset is within bounds.
-        assert(self.data_offset < self.data.len());
+        assert(self.data.len() == 0 or self.data_offset < self.data.len());
     }
 };
 
@@ -703,6 +716,52 @@ test "SlidingWindow single append case insensitive ASCII" {
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
 }
+
+test "SlidingWindow single append single char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "b");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello. boo! hello. boo!");
+
+    // We want to test single-page cases.
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    _ = try w.append(node);
+
+    // We should be able to find two matches.
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end));
+    }
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 19,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 19,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end));
+    }
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
+
 test "SlidingWindow single append no match" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -775,6 +834,61 @@ test "SlidingWindow two pages" {
         } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 10,
+            .y = 23,
+        } }, s.pages.pointFromPin(.active, sel.end).?);
+    }
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
+
+test "SlidingWindow two pages single char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "b");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 1000 });
+    defer s.deinit();
+
+    // Fill up the first page. The final bytes in the first page
+    // are "boo!"
+    const first_page_rows = s.pages.pages.first.?.data.capacity.rows;
+    for (0..first_page_rows - 1) |_| try s.testWriteString("\n");
+    for (0..s.pages.cols - 4) |_| try s.testWriteString("x");
+    try s.testWriteString("boo!");
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try s.testWriteString("\n");
+    try testing.expect(s.pages.pages.first != s.pages.pages.last);
+    try s.testWriteString("hello. boo!");
+
+    // Add both pages
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    _ = try w.append(node);
+    _ = try w.append(node.next.?);
+
+    // Search should find two matches
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 76,
+            .y = 22,
+        } }, s.pages.pointFromPin(.active, sel.start).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 76,
+            .y = 22,
+        } }, s.pages.pointFromPin(.active, sel.end).?);
+    }
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 7,
+            .y = 23,
+        } }, s.pages.pointFromPin(.active, sel.start).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 7,
             .y = 23,
         } }, s.pages.pointFromPin(.active, sel.end).?);
     }

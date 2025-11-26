@@ -396,6 +396,9 @@ extension Notification.Name {
     /// Notification sent when scrollbar updates
     static let ghosttyDidUpdateScrollbar = Notification.Name("com.mitchellh.ghostty.didUpdateScrollbar")
     static let ScrollbarKey = ghosttyDidUpdateScrollbar.rawValue + ".scrollbar"
+
+    /// Focus the search field
+    static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This

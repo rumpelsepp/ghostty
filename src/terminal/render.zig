@@ -193,9 +193,17 @@ pub const RenderState = struct {
         /// The x range of the selection within this row.
         selection: ?[2]size.CellCountInt,
 
-        /// The x ranges of highlights within this row. Highlights are
-        /// applied after the update by calling `updateHighlights`.
-        highlights: std.ArrayList([2]size.CellCountInt),
+        /// The highlights within this row.
+        highlights: std.ArrayList(Highlight),
+    };
+
+    pub const Highlight = struct {
+        /// A special tag that can be used by the caller to differentiate
+        /// different highlight types. The value is opaque to the RenderState.
+        tag: u8,
+
+        /// The x ranges of highlights within this row.
+        range: [2]size.CellCountInt,
     };
 
     pub const Cell = struct {
@@ -433,6 +441,7 @@ pub const RenderState = struct {
                     // faster than iterating pages again later.
                     if (last_dirty_page) |last_p| last_p.dirty = false;
                     last_dirty_page = p;
+                    break :dirty;
                 }
 
                 // If our row is dirty then we're dirty.
@@ -646,6 +655,7 @@ pub const RenderState = struct {
     pub fn updateHighlightsFlattened(
         self: *RenderState,
         alloc: Allocator,
+        tag: u8,
         hls: []const highlight.Flattened,
     ) Allocator.Error!void {
         // Fast path, we have no highlights!
@@ -691,8 +701,11 @@ pub const RenderState = struct {
                     try row_highlights.append(
                         arena_alloc,
                         .{
-                            if (i == 0) hl.top_x else 0,
-                            if (i == nodes.len - 1) hl.bot_x else self.cols - 1,
+                            .tag = tag,
+                            .range = .{
+                                if (i == 0) hl.top_x else 0,
+                                if (i == nodes.len - 1) hl.bot_x else self.cols - 1,
+                            },
                         },
                     );
 
