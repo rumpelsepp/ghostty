@@ -1,4 +1,3 @@
-const std = @import("std");
 const terminal = @import("../terminal/main.zig");
 
 // TODO: Test neverExtendBg function

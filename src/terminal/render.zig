@@ -703,8 +703,16 @@ pub const RenderState = struct {
                         .{
                             .tag = tag,
                             .range = .{
-                                if (i == 0) hl.top_x else 0,
-                                if (i == nodes.len - 1) hl.bot_x else self.cols - 1,
+                                if (i == 0 and
+                                    row_pin.y == starts[0])
+                                    hl.top_x
+                                else
+                                    0,
+                                if (i == nodes.len - 1 and
+                                    row_pin.y == ends[nodes.len - 1] - 1)
+                                    hl.bot_x
+                                else
+                                    self.cols - 1,
                             },
                         },
                     );

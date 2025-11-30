@@ -6,7 +6,6 @@ const point = @import("../point.zig");
 const size = @import("../size.zig");
 const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const PageList = @import("../PageList.zig");
-const Selection = @import("../Selection.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 const Terminal = @import("../Terminal.zig");
 

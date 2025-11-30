@@ -1184,10 +1184,19 @@ class AppDelegate: NSObject,
             // want to bring back these windows if we remove the toggle.
             //
             // We also ignore fullscreen windows because they don't hide anyways.
-            self.hiddenWindows = NSApp.windows.filter {
+            var visibleWindows = [Weak<NSWindow>]()
+            NSApp.windows.filter {
                 $0.isVisible &&
                 !$0.styleMask.contains(.fullScreen)
-            }.map { Weak($0) }
+            }.forEach { window in
+                // We only keep track of selectedWindow if it's in a tabGroup,
+                // so we can keep its selection state when restoring
+                let windowToHide = window.tabGroup?.selectedWindow ?? window
+                if !visibleWindows.contains(where: { $0.value === windowToHide }) {
+                    visibleWindows.append(Weak(windowToHide))
+                }
+            }
+            self.hiddenWindows = visibleWindows
         }
 
         func restore() {

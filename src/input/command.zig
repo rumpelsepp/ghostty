@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
@@ -184,12 +183,6 @@ fn actionCommands(action: Action.Key) []const Command {
             .title = "Previous Search Result",
             .description = "Navigate to the previous search result, if any.",
         } },
-
-        .search => comptime &.{.{
-            .action = .{ .search = "" },
-            .title = "End Search",
-            .description = "End a search if one is active.",
-        }},
 
         .increase_font_size => comptime &.{.{
             .action = .{ .increase_font_size = 1 },
@@ -633,6 +626,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .cursor_key,
         .set_font_size,
+        .search,
         .scroll_to_row,
         .scroll_page_fractional,
         .scroll_page_lines,

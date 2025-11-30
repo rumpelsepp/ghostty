@@ -1,6 +1,4 @@
 const std = @import("std");
-const build_options = @import("terminal_options");
-const LibEnum = @import("../../lib/enum.zig").Enum;
 const terminal = @import("../main.zig");
 const RGB = terminal.color.RGB;
 const Terminator = terminal.osc.Terminator;

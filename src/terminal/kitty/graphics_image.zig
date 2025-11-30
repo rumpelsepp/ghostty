@@ -7,7 +7,6 @@ const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const command = @import("graphics_command.zig");
-const point = @import("../point.zig");
 const PageList = @import("../PageList.zig");
 const wuffs = @import("wuffs");
 

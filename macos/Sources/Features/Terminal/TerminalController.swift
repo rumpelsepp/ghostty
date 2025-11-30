@@ -508,55 +508,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         window.syncAppearance(surfaceConfig)
     }
 
-    /// Returns the default size of the window. This is contextual based on the focused surface because
-    /// the focused surface may specify a different default size than others.
-    private var defaultSize: NSRect? {
-        guard let screen = window?.screen ?? NSScreen.main else { return nil }
-
-        if derivedConfig.maximize {
-            return screen.visibleFrame
-        } else if let focusedSurface,
-                  let initialSize = focusedSurface.initialSize {
-            // Get the current frame of the window
-            guard var frame = window?.frame else { return nil }
-
-            // Calculate the chrome size (window size minus view size)
-            let chromeWidth = frame.size.width - focusedSurface.frame.size.width
-            let chromeHeight = frame.size.height - focusedSurface.frame.size.height
-
-            // Calculate the new width and height, clamping to the screen's size
-            let newWidth = min(initialSize.width + chromeWidth, screen.visibleFrame.width)
-            let newHeight = min(initialSize.height + chromeHeight, screen.visibleFrame.height)
-
-            // Update the frame size while keeping the window's position intact
-            frame.size.width = newWidth
-            frame.size.height = newHeight
-
-            // Ensure the window doesn't go outside the screen boundaries
-            frame.origin.x = max(screen.frame.origin.x, min(frame.origin.x, screen.frame.maxX - newWidth))
-            frame.origin.y = max(screen.frame.origin.y, min(frame.origin.y, screen.frame.maxY - newHeight))
-
-            return adjustForWindowPosition(frame: frame, on: screen)
-        }
-
-        guard let initialFrame else { return nil }
-        guard var frame = window?.frame else { return nil }
-
-        // Calculate the new width and height, clamping to the screen's size
-        let newWidth = min(initialFrame.size.width, screen.visibleFrame.width)
-        let newHeight = min(initialFrame.size.height, screen.visibleFrame.height)
-
-        // Update the frame size while keeping the window's position intact
-        frame.size.width = newWidth
-        frame.size.height = newHeight
-
-        // Ensure the window doesn't go outside the screen boundaries
-        frame.origin.x = max(screen.frame.origin.x, min(frame.origin.x, screen.frame.maxX - newWidth))
-        frame.origin.y = max(screen.frame.origin.y, min(frame.origin.y, screen.frame.maxY - newHeight))
-
-        return adjustForWindowPosition(frame: frame, on: screen)
-    }
-    
     /// Adjusts the given frame for the configured window position.
     func adjustForWindowPosition(frame: NSRect, on screen: NSScreen) -> NSRect {
         guard let x = derivedConfig.windowPositionX else { return frame }
@@ -922,9 +873,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidLoad()
         guard let window else { return }
 
-        // Store our initial frame so we can know our default later.
-        initialFrame = window.frame
-
         // I copy this because we may change the source in the future but also because
         // I regularly audit our codebase for "ghostty.config" access because generally
         // you shouldn't use it. Its safe in this case because for a new window we should
@@ -944,19 +892,38 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // If this is our first surface then our focused surface will be nil
             // so we force the focused surface to the leaf.
             focusedSurface = view
-
-            if let defaultSize {
-                window.setFrame(defaultSize, display: true)
-            }
         }
 
         // Initialize our content view to the SwiftUI root
         window.contentView = NSHostingView(rootView: TerminalView(
             ghostty: self.ghostty,
             viewModel: self,
-            delegate: self
+            delegate: self,
         ))
-
+        
+        // If we have a default size, we want to apply it.
+        if let defaultSize {
+            switch (defaultSize) {
+            case .frame:
+                // Frames can be applied immediately
+                defaultSize.apply(to: window)
+                
+            case .contentIntrinsicSize:
+                // Content intrinsic size requires a short delay so that AppKit
+                // can layout our SwiftUI views.
+                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak window] in
+                    guard let window else { return }
+                    defaultSize.apply(to: window)
+                }
+            }
+        }
+        
+        // Store our initial frame so we can know our default later. This MUST
+        // be after the defaultSize call above so that we don't re-apply our frame.
+        // Note: we probably want to set this on the first frame change or something
+        // so it respects cascade.
+        initialFrame = window.frame
+        
         // In various situations, macOS automatically tabs new windows. Ghostty handles
         // its own tabbing so we DONT want this behavior. This detects this scenario and undoes
         // it.
@@ -1144,8 +1111,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func returnToDefaultSize(_ sender: Any?) {
-        guard let defaultSize else { return }
-        window?.setFrame(defaultSize, display: true)
+        guard let window, let defaultSize else { return }
+        defaultSize.apply(to: window)
     }
 
     @IBAction override func closeWindow(_ sender: Any?) {
@@ -1421,19 +1388,68 @@ extension TerminalController {
 
             // If our window is already the default size or we don't have a
             // default size, then disable.
-            guard let defaultSize,
-                  window.frame.size != .init(
-                    width: defaultSize.size.width,
-                    height: defaultSize.size.height
-                  )
-            else {
-                return false
-            }
-
-            return true
+            return defaultSize?.isChanged(for: window) ?? false
 
         default:
             return super.validateMenuItem(item)
+        }
+    }
+}
+
+// MARK: Default Size
+
+extension TerminalController {
+    /// The possible default sizes for a terminal. The size can't purely be known as a
+    /// window frame because if we set `window-width/height` then it is based
+    /// on content size.
+    enum DefaultSize {
+        /// A frame, set with `window.setFrame`
+        case frame(NSRect)
+        
+        /// A content size, set with `window.setContentSize`
+        case contentIntrinsicSize
+        
+        func isChanged(for window: NSWindow) -> Bool {
+            switch self {
+            case .frame(let rect):
+                return window.frame != rect
+            case .contentIntrinsicSize:
+                guard let view = window.contentView else {
+                    return false
+                }
+                
+                return view.frame.size != view.intrinsicContentSize
+            }
+        }
+        
+        func apply(to window: NSWindow) {
+            switch self {
+            case .frame(let rect):
+                window.setFrame(rect, display: true)
+            case .contentIntrinsicSize:
+                guard let size = window.contentView?.intrinsicContentSize else {
+                    return
+                }
+                
+                window.setContentSize(size)
+                window.constrainToScreen()
+            }
+        }
+    }
+    
+    private var defaultSize: DefaultSize? {
+        if derivedConfig.maximize, let screen = window?.screen ?? NSScreen.main {
+            // Maximize takes priority, we take up the full screen we're on.
+            return .frame(screen.visibleFrame)
+        } else if focusedSurface?.initialSize != nil {
+            // Initial size as requested by the configuration (e.g. `window-width`)
+            // takes next priority.
+            return .contentIntrinsicSize
+        } else if let initialFrame {
+            // The initial frame we had when we started otherwise.
+            return .frame(initialFrame)
+        } else {
+            return nil
         }
     }
 }

@@ -16,7 +16,6 @@ const font = @import("../main.zig");
 const Glyph = font.Glyph;
 const Library = font.Library;
 const opentype = @import("../opentype.zig");
-const fastmem = @import("../../fastmem.zig");
 const quirks = @import("../../quirks.zig");
 const config = @import("../../config.zig");
 

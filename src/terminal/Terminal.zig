@@ -5,7 +5,6 @@ const Terminal = @This();
 
 const std = @import("std");
 const build_options = @import("terminal_options");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;

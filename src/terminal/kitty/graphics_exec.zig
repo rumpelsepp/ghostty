@@ -2,8 +2,6 @@ const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 
-const renderer = @import("../../renderer.zig");
-const point = @import("../point.zig");
 const Terminal = @import("../Terminal.zig");
 const command = @import("graphics_command.zig");
 const image = @import("graphics_image.zig");

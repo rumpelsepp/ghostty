@@ -10,7 +10,6 @@ const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
-const sgr = @import("sgr.zig");
 const stylepkg = @import("style.zig");
 const Style = stylepkg.Style;
 const StyleId = stylepkg.Id;

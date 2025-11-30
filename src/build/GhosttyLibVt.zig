@@ -3,11 +3,7 @@ const GhosttyLibVt = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const RunStep = std.Build.Step.Run;
-const Config = @import("Config.zig");
 const GhosttyZig = @import("GhosttyZig.zig");
-const SharedDeps = @import("SharedDeps.zig");
-const LibtoolStep = @import("LibtoolStep.zig");
-const LipoStep = @import("LipoStep.zig");
 
 /// The step that generates the file.
 step: *std.Build.Step,

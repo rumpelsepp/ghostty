@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const run = @import("shaper/run.zig");
 const feature = @import("shaper/feature.zig");

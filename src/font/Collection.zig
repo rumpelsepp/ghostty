@@ -16,7 +16,6 @@
 const Collection = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
 const comparison = @import("../datastruct/comparison.zig");

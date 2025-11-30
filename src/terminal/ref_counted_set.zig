@@ -5,8 +5,6 @@ const size = @import("size.zig");
 const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
 
-const fastmem = @import("../fastmem.zig");
-
 /// A reference counted set.
 ///
 /// This set is created with some capacity in mind. You can determine

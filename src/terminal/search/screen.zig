@@ -10,7 +10,6 @@ const TrackedHighlight = highlight.Tracked;
 const PageList = @import("../PageList.zig");
 const Pin = PageList.Pin;
 const Screen = @import("../Screen.zig");
-const Selection = @import("../Selection.zig");
 const Terminal = @import("../Terminal.zig");
 const ActiveSearch = @import("active.zig").ActiveSearch;
 const PageListSearch = @import("pagelist.zig").PageListSearch;

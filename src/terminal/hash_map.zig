@@ -31,7 +31,6 @@
 //! bottleneck.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const autoHash = std.hash.autoHash;
 const math = std.math;

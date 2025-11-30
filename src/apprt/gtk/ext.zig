@@ -7,7 +7,6 @@ const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 
-const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");

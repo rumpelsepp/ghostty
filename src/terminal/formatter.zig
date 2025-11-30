@@ -825,6 +825,8 @@ pub const PageFormatter = struct {
     /// byte written to the writer offset by the byte index. It is the
     /// caller's responsibility to free the map.
     ///
+    /// The x/y coordinate will be the coordinates within the page.
+    ///
     /// Warning: there is a significant performance hit to track this
     point_map: ?struct {
         alloc: Allocator,
@@ -1447,6 +1449,76 @@ test "Page plain single line" {
     for (0..output.len) |i| try testing.expectEqual(
         Coordinate{ .x = @intCast(i), .y = 0 },
         point_map.items[i],
+    );
+}
+
+test "Page plain single line soft-wrapped unwrapped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 3,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello!");
+
+    // Verify we have only a single page
+    const pages = &t.screens.active.pages;
+    try testing.expect(pages.pages.first != null);
+    try testing.expect(pages.pages.first == pages.pages.last);
+
+    // Create the formatter
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{
+        .emit = .plain,
+        .unwrap = true,
+    });
+
+    // Test our point map.
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    // Verify output
+    // Note: we don't test the trailing state, which may have bugs
+    // with unwrap...
+    _ = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello!", output);
+
+    // Verify our point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    try testing.expectEqual(
+        Coordinate{ .x = 0, .y = 0 },
+        point_map.items[0],
+    );
+    try testing.expectEqual(
+        Coordinate{ .x = 1, .y = 0 },
+        point_map.items[1],
+    );
+    try testing.expectEqual(
+        Coordinate{ .x = 2, .y = 0 },
+        point_map.items[2],
+    );
+    try testing.expectEqual(
+        Coordinate{ .x = 0, .y = 1 },
+        point_map.items[3],
+    );
+    try testing.expectEqual(
+        Coordinate{ .x = 1, .y = 1 },
+        point_map.items[4],
+    );
+    try testing.expectEqual(
+        Coordinate{ .x = 2, .y = 1 },
+        point_map.items[5],
     );
 }
 

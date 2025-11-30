@@ -405,7 +405,7 @@ extension Ghostty {
         
         var body: some View {
             GeometryReader { geo in
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     TextField("Search", text: $searchState.needle)
                     .textFieldStyle(.plain)
                     .frame(width: 180)
@@ -451,7 +451,7 @@ extension Ghostty {
                     }) {
                         Image(systemName: "chevron.up")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(SearchButtonStyle())
                     
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
@@ -460,12 +460,12 @@ extension Ghostty {
                     }) {
                         Image(systemName: "chevron.down")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(SearchButtonStyle())
                     
                     Button(action: onClose) {
                         Image(systemName: "xmark")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(SearchButtonStyle())
                 }
                 .padding(8)
                 .background(.background)
@@ -554,6 +554,35 @@ extension Ghostty {
                 return point.y < midY ? .topLeft : .bottomLeft
             } else {
                 return point.y < midY ? .topRight : .bottomRight
+            }
+        }
+        
+        struct SearchButtonStyle: ButtonStyle {
+            @State private var isHovered = false
+            
+            func makeBody(configuration: Configuration) -> some View {
+                configuration.label
+                    .foregroundStyle(isHovered || configuration.isPressed ? .primary : .secondary)
+                    .padding(.horizontal, 2)
+                    .frame(height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(backgroundColor(isPressed: configuration.isPressed))
+                    )
+                    .onHover { hovering in
+                        isHovered = hovering
+                    }
+                    .backport.pointerStyle(.link)
+            }
+            
+            private func backgroundColor(isPressed: Bool) -> Color {
+                if isPressed {
+                    return Color.primary.opacity(0.2)
+                } else if isHovered {
+                    return Color.primary.opacity(0.1)
+                } else {
+                    return Color.clear
+                }
             }
         }
     }

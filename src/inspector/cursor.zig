@@ -1,4 +1,3 @@
-const std = @import("std");
 const cimgui = @import("cimgui");
 const terminal = @import("../terminal/main.zig");
 

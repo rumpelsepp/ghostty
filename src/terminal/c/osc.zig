@@ -1,6 +1,4 @@
 const std = @import("std");
-const assert = @import("../../quirks.zig").inlineAssert;
-const builtin = @import("builtin");
 const lib_alloc = @import("../../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
 const osc = @import("../osc.zig");
