@@ -155,6 +155,9 @@ command_timer: ?std.time.Instant = null,
 /// Search state
 search: ?Search = null,
 
+/// Used to rate limit BEL handling.
+last_bell_time: ?std.time.Instant = null,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -1026,7 +1029,12 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .password_input => |v| try self.passwordInput(v),
 
-        .ring_bell => {
+        .ring_bell => bell: {
+            const now = std.time.Instant.now() catch unreachable;
+            if (self.last_bell_time) |last| {
+                if (now.since(last) < 100 * std.time.ns_per_ms) break :bell;
+            }
+            self.last_bell_time = now;
             _ = self.rt_app.performAction(
                 .{ .surface = self },
                 .ring_bell,
@@ -2584,6 +2592,8 @@ pub fn keyCallback(
         {
             // Refresh our link state
             const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             self.mouseRefreshLinks(
                 pos,
                 self.posToViewport(pos.x, pos.y),
@@ -3464,6 +3474,8 @@ fn mouseReport(
                 .five => 65,
                 .six => 66,
                 .seven => 67,
+                .eight => 128,
+                .nine => 129,
                 else => return, // unsupported
             };
         }
@@ -5020,8 +5032,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .copy_to_clipboard => |format| {
-            // We can read from the renderer state without holding
-            // the lock because only we will write to this field.
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
             if (self.io.terminal.screens.active.selection) |sel| {
                 try self.copySelectionToClipboards(
                     sel,
@@ -5049,8 +5062,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .copy_url_to_clipboard => {
             // If the mouse isn't over a link, nothing we can do.
             if (!self.mouse.over_link) return false;
-
             const pos = try self.rt_surface.getCursorPos();
+
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             if (try self.linkAtPos(pos)) |link_info| {
                 const url_text = switch (link_info[0]) {
                     .open => url_text: {
@@ -5426,6 +5441,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         ),
 
         .select_all => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
             const sel = self.io.terminal.screens.active.selectAll();
             if (sel) |s| {
                 try self.setSelection(s);

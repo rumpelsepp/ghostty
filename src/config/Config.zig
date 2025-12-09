@@ -6098,6 +6098,20 @@ pub const Keybinds = struct {
                 .{ .jump_to_prompt = 1 },
             );
 
+            // Search
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .ctrl = true, .shift = true } },
+                .start_search,
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .escape } },
+                .end_search,
+                .{ .performable = true },
+            );
+
             // Inspector, matching Chromium
             try self.set.put(
                 alloc,
@@ -7973,7 +7987,8 @@ pub const QuickTerminalSize = struct {
             tag: Tag,
             value: Value,
 
-            pub const Tag = enum(u8) { none, percentage, pixels };
+            /// c_int because it needs to be extern compatible
+            pub const Tag = enum(c_int) { none, percentage, pixels };
 
             pub const Value = extern union {
                 percentage: f32,

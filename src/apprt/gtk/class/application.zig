@@ -727,6 +727,11 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
 
+            .start_search => Action.startSearch(target),
+            .end_search => Action.endSearch(target),
+            .search_total => Action.searchTotal(target, value),
+            .search_selected => Action.searchSelected(target, value),
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -741,10 +746,6 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
-            .start_search,
-            .end_search,
-            .search_total,
-            .search_selected,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -2338,6 +2339,34 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| v.rt_surface.surface.setScrollbar(value),
+        }
+    }
+
+    pub fn startSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+        }
+    }
+
+    pub fn endSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+        }
+    }
+
+    pub fn searchTotal(target: apprt.Target, value: apprt.action.SearchTotal) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchTotal(value.total),
+        }
+    }
+
+    pub fn searchSelected(target: apprt.Target, value: apprt.action.SearchSelected) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchSelected(value.selected),
         }
     }
 

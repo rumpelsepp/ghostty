@@ -25,6 +25,7 @@ const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
+const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
@@ -548,6 +549,9 @@ pub const Surface = extern struct {
 
         /// The resize overlay
         resize_overlay: *ResizeOverlay,
+
+        /// The search overlay
+        search_overlay: *SearchOverlay,
 
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
@@ -1135,13 +1139,14 @@ pub const Surface = extern struct {
                 if (entry.native == keycode) break :w3c entry.key;
             } else .unidentified;
 
-            // If the key should be remappable, then consult the pre-remapped
-            // XKB keyval/keysym to get the (possibly) remapped key.
+            // Consult the pre-remapped XKB keyval/keysym to get the (possibly)
+            // remapped key. If the W3C key or the remapped key
+            // is eligible for remapping, we use it.
             //
             // See the docs for `shouldBeRemappable` for why we even have to
             // do this in the first place.
-            if (w3c_key.shouldBeRemappable()) {
-                if (gtk_key.keyFromKeyval(keyval)) |remapped|
+            if (gtk_key.keyFromKeyval(keyval)) |remapped| {
+                if (w3c_key.shouldBeRemappable() or remapped.shouldBeRemappable())
                     break :keycode remapped;
             }
 
@@ -1949,6 +1954,29 @@ pub const Surface = extern struct {
         const priv = self.private();
         priv.@"error" = v;
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
+    }
+
+    pub fn setSearchActive(self: *Self, active: bool) void {
+        const priv = self.private();
+        var value = gobject.ext.Value.newFrom(active);
+        defer value.unset();
+        gobject.Object.setProperty(
+            priv.search_overlay.as(gobject.Object),
+            SearchOverlay.properties.active.name,
+            &value,
+        );
+
+        if (active) {
+            priv.search_overlay.grabFocus();
+        }
+    }
+
+    pub fn setSearchTotal(self: *Self, total: ?usize) void {
+        self.private().search_overlay.setSearchTotal(total);
+    }
+
+    pub fn setSearchSelected(self: *Self, selected: ?usize) void {
+        self.private().search_overlay.setSearchSelected(selected);
     }
 
     fn propConfig(
@@ -3170,6 +3198,35 @@ pub const Surface = extern struct {
         self.setTitleOverride(if (title.len == 0) null else title);
     }
 
+    fn searchStop(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.end_search) catch |err| {
+            log.warn("unable to perform end_search action err={}", .{err});
+        };
+        _ = self.private().gl_area.as(gtk.Widget).grabFocus();
+    }
+
+    fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .search = std.mem.sliceTo(needle orelse "", 0) }) catch |err| {
+            log.warn("unable to perform search action err={}", .{err});
+        };
+    }
+
+    fn searchNextMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .next }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
+    fn searchPreviousMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .previous }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3184,6 +3241,7 @@ pub const Surface = extern struct {
 
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(ResizeOverlay);
+            gobject.ext.ensureType(SearchOverlay);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -3203,6 +3261,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("error_page", .{});
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
+            class.bindTemplateChildPrivate("search_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
@@ -3240,6 +3299,10 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("search_stop", &searchStop);
+            class.bindTemplateCallback("search_changed", &searchChanged);
+            class.bindTemplateCallback("search_next_match", &searchNextMatch);
+            class.bindTemplateCallback("search_previous_match", &searchPreviousMatch);
 
             // Properties
             gobject.ext.registerProperties(class, &.{

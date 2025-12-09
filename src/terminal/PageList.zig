@@ -2608,7 +2608,9 @@ pub fn adjustCapacity(
     errdefer self.destroyNode(new_node);
     const new_page: *Page = &new_node.data;
     assert(new_page.capacity.rows >= page.capacity.rows);
+    assert(new_page.capacity.cols >= page.capacity.cols);
     new_page.size.rows = page.size.rows;
+    new_page.size.cols = page.size.cols;
     try new_page.cloneFrom(page, 0, page.size.rows);
 
     // Fix up all our tracked pins to point to the new page.
@@ -6254,6 +6256,39 @@ test "PageList adjustCapacity to increase hyperlinks" {
                 );
             }
         }
+    }
+}
+
+test "PageList adjustCapacity after col shrink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 2, 0);
+    defer s.deinit();
+
+    // Shrink columns - this updates size.cols but not capacity.cols
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(5, s.cols);
+
+    {
+        const page = &s.pages.first.?.data;
+        // capacity.cols is still 10, but size.cols should be 5
+        try testing.expectEqual(5, page.size.cols);
+        try testing.expect(page.capacity.cols >= 10);
+    }
+
+    // Now adjust capacity (e.g., to increase styles)
+    // This should preserve the current size.cols, not revert to capacity.cols
+    _ = try s.adjustCapacity(
+        s.pages.first.?,
+        .{ .styles = std_capacity.styles * 2 },
+    );
+
+    {
+        const page = &s.pages.first.?.data;
+        // After adjustCapacity, size.cols should still be 5, not 10
+        try testing.expectEqual(5, page.size.cols);
+        try testing.expectEqual(5, s.cols);
     }
 }
 
