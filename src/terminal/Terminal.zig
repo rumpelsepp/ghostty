@@ -3736,19 +3736,23 @@ test "Terminal: print invalid VS15 in emoji ZWJ sequence" {
 }
 
 test "Terminal: VS15 to make narrow character with pending wrap" {
-    var t = try init(testing.allocator, .{ .rows = 5, .cols = 2 });
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 4 });
     defer t.deinit(testing.allocator);
 
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
+    try testing.expect(t.modes.get(.wraparound));
+
+    try t.print(0x1F34B); // Lemon, width=2
     try t.print(0x2614); // Umbrella with rain drops, width=2
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     t.clearDirty();
 
-    // We only move one because we're in a pending wrap state.
+    // We only move to the end of the line because we're in a pending wrap
+    // state.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
-    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 3), t.screens.active.cursor.x);
     try testing.expect(t.screens.active.cursor.pending_wrap);
 
     try t.print(0xFE0E); // VS15 to make narrow
@@ -3757,23 +3761,33 @@ test "Terminal: VS15 to make narrow character with pending wrap" {
 
     // VS15 should clear the pending wrap state
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
-    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 3), t.screens.active.cursor.x);
     try testing.expect(!t.screens.active.cursor.pending_wrap);
 
     {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
-        try testing.expectEqualStrings("☔︎", str);
+        try testing.expectEqualStrings("🍋☔︎", str);
     }
 
     {
-        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 0x2614), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
         const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+
+    // VS15 should not affect the previous grapheme
+    {
+        const lemon_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?.cell;
+        try testing.expectEqual(@as(u21, 0x1F34B), lemon_cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, lemon_cell.wide);
+        const spacer_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?.cell;
+        try testing.expectEqual(@as(u21, 0), spacer_cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, spacer_cell.wide);
     }
 }
 
