@@ -76,12 +76,37 @@ allowing us to automatically integrate with the shell. For details
 on the Fish startup process, see the
 [Fish documentation](https://fishshell.com/docs/current/language.html).
 
+### Nushell
+
+For [Nushell](https://www.nushell.sh/), Ghostty prepends to the
+`XDG_DATA_DIRS` directory, making the `ghostty` module available through
+Nushell's vendor autoload mechanism. Ghostty then automatically imports
+the module using the `-e "use ghostty *"` flag when starting Nushell.
+
+Nushell provides many shell features itself, such as `title` and `cursor`,
+so our integration focuses on Ghostty-specific features like `sudo`,
+`ssh-env`, and `ssh-terminfo`.
+
+The shell integration is automatically enabled when running Nushell in Ghostty,
+but you can also load it manually is shell integration is disabled:
+
+```nushell
+source $GHOSTTY_RESOURCES_DIR/shell-integration/nushell/vendor/autoload/ghostty.nu
+use ghostty *
+```
+
 ### Zsh
 
-For `zsh`, Ghostty sets `ZDOTDIR` so that it loads our configuration
-from the `zsh` directory. The existing `ZDOTDIR` is retained so that
-after loading the Ghostty shell integration the normal Zsh loading
-sequence occurs.
+Automatic [Zsh](https://www.zsh.org/) integration works by temporarily setting
+`ZDOTDIR` to our `zsh` directory. An existing `ZDOTDIR` environment variable
+value will be retained and restored after our shell integration scripts are
+run.
+
+However, if `ZDOTDIR` is set in a system-wide file like `/etc/zshenv`, it will
+override Ghostty's `ZDOTDIR` value, preventing the shell integration from being
+loaded. In this case, the shell integration needs to be loaded manually.
+
+To load the Zsh shell integration manually:
 
 ```zsh
 if [[ -n $GHOSTTY_RESOURCES_DIR ]]; then

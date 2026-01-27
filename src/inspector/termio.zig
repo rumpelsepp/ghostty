@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const cimgui = @import("cimgui");
+const cimgui = @import("dcimgui");
 const terminal = @import("../terminal/main.zig");
 const CircBuf = @import("../datastruct/main.zig").CircBuf;
 const Surface = @import("../Surface.zig");
@@ -83,7 +83,7 @@ pub const VTEvent = struct {
     /// Returns true if the event passes the given filter.
     pub fn passFilter(
         self: *const VTEvent,
-        filter: *cimgui.c.ImGuiTextFilter,
+        filter: *const cimgui.c.ImGuiTextFilter,
     ) bool {
         // Check our main string
         if (cimgui.c.ImGuiTextFilter_PassFilter(
@@ -286,18 +286,19 @@ pub const VTEvent = struct {
             ),
 
             else => switch (Value) {
-                u8, u16 => try md.put(
-                    key,
-                    try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
-                ),
-
                 []const u8,
                 [:0]const u8,
                 => try md.put(key, try alloc.dupeZ(u8, value)),
 
-                else => |T| {
-                    @compileLog(T);
-                    @compileError("unsupported type, see log");
+                else => |T| switch (@typeInfo(T)) {
+                    .int => try md.put(
+                        key,
+                        try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
+                    ),
+                    else => {
+                        @compileLog(T);
+                        @compileError("unsupported type, see log");
+                    },
                 },
             },
         }
@@ -318,19 +319,18 @@ pub const VTHandler = struct {
 
     /// Exclude certain actions by tag.
     filter_exclude: ActionTagSet = .initMany(&.{.print}),
-    filter_text: *cimgui.c.ImGuiTextFilter,
+    filter_text: cimgui.c.ImGuiTextFilter = .{},
 
     const ActionTagSet = std.EnumSet(terminal.Parser.Action.Tag);
 
     pub fn init(surface: *Surface) VTHandler {
         return .{
             .surface = surface,
-            .filter_text = cimgui.c.ImGuiTextFilter_ImGuiTextFilter(""),
         };
     }
 
     pub fn deinit(self: *VTHandler) void {
-        cimgui.c.ImGuiTextFilter_destroy(self.filter_text);
+        _ = self;
     }
 
     pub fn vt(
@@ -371,7 +371,7 @@ pub const VTHandler = struct {
         errdefer ev.deinit(alloc);
 
         // Check if the event passes the filter
-        if (!ev.passFilter(self.filter_text)) {
+        if (!ev.passFilter(&self.filter_text)) {
             ev.deinit(alloc);
             return true;
         }

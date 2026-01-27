@@ -8,16 +8,16 @@ import GhosttyKit
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
-
+        
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return defaultValue }
         let config = appDelegate.ghostty.config
-
+        
         // If we have no window decorations, there's no reason to do anything but
         // the default titlebar (because there will be no titlebar).
         if !config.windowDecorations {
             return defaultValue
         }
-
+        
         let nib = switch config.macosTitlebarStyle {
         case "native": "Terminal"
         case "hidden": "TerminalHiddenTitlebar"
@@ -34,32 +34,33 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 #endif
         default: defaultValue
         }
-
+        
         return nib
     }
-
+    
     /// This is set to true when we care about frame changes. This is a small optimization since
     /// this controller registers a listener for ALL frame change notifications and this lets us bail
     /// early if we don't care.
     private var tabListenForFrame: Bool = false
-
+    
     /// This is the hash value of the last tabGroup.windows array. We use this to detect order
     /// changes in the list.
     private var tabWindowsHash: Int = 0
-
+    
     /// This is set to false by init if the window managed by this controller should not be restorable.
     /// For example, terminals executing custom scripts are not restorable.
     private var restorable: Bool = true
-
+    
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
-
+    
+    
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
-
+    
     /// This will be set to the initial frame of the window from the xib on load.
     private var initialFrame: NSRect? = nil
-
+    
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -71,12 +72,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // as the script. We may want to revisit this behavior when we have scrollback
         // restoration.
         self.restorable = (base?.command ?? "") == ""
-
+        
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
-
+        
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
-
+        
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
         center.addObserver(
@@ -106,6 +107,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(onCloseTabsOnTheRight),
+            name: .ghosttyCloseTabsOnTheRight,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(onResetWindowSize),
             name: .ghosttyResetWindowSize,
             object: nil
@@ -128,46 +134,55 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             object: nil
         )
     }
-
+    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported for this view")
     }
-
+    
     deinit {
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
     }
-
+    
     // MARK: Base Controller Overrides
-
+    
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
         
         // Whenever our surface tree changes in any way (new split, close split, etc.)
         // we want to invalidate our state.
         invalidateRestorableState()
-
+        
         // Update our zoom state
         if let window = window as? TerminalWindow {
             window.surfaceIsZoomed = to.zoomed != nil
         }
-
+        
         // If our surface tree is now nil then we close our window.
         if (to.isEmpty) {
             self.window?.close()
         }
     }
-
-
-    override func fullscreenDidChange() {
-        super.fullscreenDidChange()
-
-        // When our fullscreen state changes, we resync our appearance because some
-        // properties change when fullscreen or not.
-        guard let focusedSurface else { return }
-
-        syncAppearance(focusedSurface.derivedConfig)
+    
+    override func replaceSurfaceTree(
+        _ newTree: SplitTree<Ghostty.SurfaceView>,
+        moveFocusTo newView: Ghostty.SurfaceView? = nil,
+        moveFocusFrom oldView: Ghostty.SurfaceView? = nil,
+        undoAction: String? = nil
+    ) {
+        // We have a special case if our tree is empty to close our tab immediately.
+        // This makes it so that undo is handled properly.
+        if newTree.isEmpty {
+            closeTabImmediately()
+            return
+        }
+        
+        super.replaceSurfaceTree(
+            newTree,
+            moveFocusTo: newView,
+            moveFocusFrom: oldView,
+            undoAction: undoAction)
     }
 
     // MARK: Terminal Creation
@@ -190,7 +205,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             $0.window?.isMainWindow ?? false
         } ?? lastMain ?? all.last
     }
-    
+
     // The last controller to be main. We use this when paired with "preferredParent"
     // to find the preferred window to attach new tabs, perform actions, etc. We
     // always prefer the main window but if there isn't any (because we're triggered
@@ -273,6 +288,72 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                         ghostty,
                         withBaseConfig: baseConfig,
                         withParent: explicitParent)
+                }
+            }
+        }
+
+        return c
+    }
+
+    /// Create a new window with an existing split tree.
+    /// The window will be sized to match the tree's current view bounds if available.
+    /// - Parameters:
+    ///   - ghostty: The Ghostty app instance.
+    ///   - tree: The split tree to use for the new window.
+    ///   - position: Optional screen position (top-left corner) for the new window.
+    ///               If nil, the window will cascade from the last cascade point.
+    static func newWindow(
+        _ ghostty: Ghostty.App,
+        tree: SplitTree<Ghostty.SurfaceView>,
+        position: NSPoint? = nil,
+        confirmUndo: Bool = true,
+    ) -> TerminalController {
+        let c = TerminalController.init(ghostty, withSurfaceTree: tree)
+
+        // Calculate the target frame based on the tree's view bounds
+        let treeSize: CGSize? = tree.root?.viewBounds()
+
+        DispatchQueue.main.async {
+            if let window = c.window {
+                // If we have a tree size, resize the window's content to match
+                if let treeSize, treeSize.width > 0, treeSize.height > 0 {
+                    window.setContentSize(treeSize)
+                    window.constrainToScreen()
+                }
+
+                if !window.styleMask.contains(.fullScreen) {
+                    if let position {
+                        window.setFrameTopLeftPoint(position)
+                        window.constrainToScreen()
+                    } else {
+                        Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                    }
+                }
+            }
+
+            c.showWindow(self)
+        }
+
+        // Setup our undo
+        if let undoManager = c.undoManager {
+            undoManager.setActionName("New Window")
+            undoManager.registerUndo(
+                withTarget: c,
+                expiresAfter: c.undoExpiration
+            ) { target in
+                undoManager.disableUndoRegistration {
+                    if confirmUndo {
+                        target.closeWindow(nil)
+                    } else {
+                        target.closeWindowImmediately()
+                    }
+                }
+
+                undoManager.registerUndo(
+                    withTarget: ghostty,
+                    expiresAfter: target.undoExpiration
+                ) { ghostty in
+                    _ = TerminalController.newWindow(ghostty, tree: tree)
                 }
             }
         }
@@ -402,7 +483,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         return controller
     }
-
+    
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -425,15 +506,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
             return
         }
-
-        // This is a surface-level config update. If we have the surface, we
-        // update our appearance based on it.
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
-        guard surfaceTree.contains(surfaceView) else { return }
-
-        // We can't use surfaceView.derivedConfig because it may not be updated
-        // yet since it also responds to notifications.
-        syncAppearance(.init(config))
+        /// Surface-level config will be updated in
+        /// ``Ghostty/Ghostty/SurfaceView/derivedConfig`` then
+        /// ``TerminalController/focusedSurfaceDidChange(to:)``
     }
 
     /// Update the accessory view of each tab according to the keyboard
@@ -489,6 +564,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         tabWindowsHash = v
         self.relabelTabs()
     }
+    
+    override func syncAppearance() {
+        // When our focus changes, we update our window appearance based on the
+        // currently focused surface.
+        guard let focusedSurface else { return }
+        syncAppearance(focusedSurface.derivedConfig)
+    }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         // Let our window handle its own appearance
@@ -518,13 +600,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             fromTopLeftOffsetX: CGFloat(x),
             offsetY: CGFloat(y),
             windowSize: frame.size)
-        
+
         // Clamp the origin to ensure the window stays fully visible on screen
         var safeOrigin = origin
         let vf = screen.visibleFrame
         safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
         safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
-        
+
         // Return our new origin
         var result = frame
         result.origin = safeOrigin
@@ -552,14 +634,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         closeWindow(nil)
     }
 
-    private func closeTabImmediately(registerRedo: Bool = true) {
+    func closeTabImmediately(registerRedo: Bool = true) {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup,
                 tabGroup.windows.count > 1 else {
             closeWindowImmediately()
             return
         }
-        
+
         // Undo
         if let undoManager, let undoState {
             // Register undo action to restore the tab
@@ -580,15 +662,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
-        
+
         window.close()
     }
-    
+
     private func closeOtherTabsImmediately() {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup else { return }
         guard tabGroup.windows.count > 1 else { return }
-        
+
         // Start an undo grouping
         if let undoManager {
             undoManager.beginUndoGrouping()
@@ -596,7 +678,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         defer {
             undoManager?.endUndoGrouping()
         }
-        
+
         // Iterate through all tabs except the current one.
         for window in tabGroup.windows where window != self.window {
             // We ignore any non-terminal tabs. They don't currently exist and we can't
@@ -608,10 +690,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 controller.closeTabImmediately(registerRedo: false)
             }
         }
-        
+
         if let undoManager {
             undoManager.setActionName("Close Other Tabs")
-            
+
             // We need to register an undo that refocuses this window. Otherwise, the
             // undo operation above for each tab will steal focus.
             undoManager.registerUndo(
@@ -621,7 +703,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 DispatchQueue.main.async {
                     target.window?.makeKeyAndOrderFront(nil)
                 }
-                
+
                 // Register redo action
                 undoManager.registerUndo(
                     withTarget: target,
@@ -633,9 +715,49 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    private func closeTabsOnTheRightImmediately() {
+        guard let window = window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+
+        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        guard !tabsToClose.isEmpty else { return }
+
+        undoManager?.beginUndoGrouping()
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+
+        for (_, candidate) in tabsToClose {
+            if let controller = candidate.windowController as? TerminalController {
+                controller.closeTabImmediately(registerRedo: false)
+            }
+        }
+
+        if let undoManager {
+            undoManager.setActionName("Close Tabs to the Right")
+
+            undoManager.registerUndo(
+                withTarget: self,
+                expiresAfter: undoExpiration
+            ) { target in
+                DispatchQueue.main.async {
+                    target.window?.makeKeyAndOrderFront(nil)
+                }
+
+                undoManager.registerUndo(
+                    withTarget: target,
+                    expiresAfter: target.undoExpiration
+                ) { target in
+                    target.closeTabsOnTheRightImmediately()
+                }
+            }
+        }
+    }
+
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    private func closeWindowImmediately() {
+    func closeWindowImmediately() {
         guard let window = window else { return }
 
         registerUndoForCloseWindow()
@@ -707,7 +829,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 case (nil, nil): return true
                 }
             }
-        
+
         // Find the index of the key window in our sorted states. This is a bit verbose
         // but we only need this for this style of undo so we don't want to add it to
         // UndoState.
@@ -733,12 +855,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             let controllers = undoStates.map { undoState in
                 TerminalController(ghostty, with: undoState)
             }
-            
+
             // The first controller becomes the parent window for all tabs.
             // If we don't have a first controller (shouldn't be possible?)
             // then we can't restore tabs.
             guard let firstController = controllers.first else { return }
-            
+
             // Add all subsequent controllers as tabs to the first window
             for controller in controllers.dropFirst() {
                 controller.showWindow(nil)
@@ -747,7 +869,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     firstWindow.addTabbedWindow(newWindow, ordered: .above)
                 }
             }
-            
+
             // Make the appropriate window key. If we had a key window, restore it.
             // Otherwise, make the last window key.
             if let keyWindowIndex, keyWindowIndex < controllers.count {
@@ -813,6 +935,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let focusedSurface: UUID?
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
+        let tabColor: TerminalTabColor
     }
 
     convenience init(_ ghostty: Ghostty.App,
@@ -824,6 +947,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         showWindow(nil)
         if let window {
             window.setFrame(undoState.frame, display: true)
+            if let terminalWindow = window as? TerminalWindow {
+                terminalWindow.tabColor = undoState.tabColor
+            }
 
             // If we have a tab group and index, restore the tab to its original position
             if let tabGroup = undoState.tabGroup,
@@ -839,12 +965,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // Make it the key window
                 window.makeKeyAndOrderFront(nil)
             }
-
+            
             // Restore focus to the previously focused surface
             if let focusedUUID = undoState.focusedSurface,
                let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
                 DispatchQueue.main.async {
                     Ghostty.moveFocus(to: focusTarget, from: nil)
+                }
+            } else if let focusedSurface = surfaceTree.first {
+                // No prior focused surface or we can't find it, let's focus
+                // the first.
+                self.focusedSurface = focusedSurface
+                DispatchQueue.main.async {
+                    Ghostty.moveFocus(to: focusedSurface, from: nil)
                 }
             }
         }
@@ -859,7 +992,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             surfaceTree: surfaceTree,
             focusedSurface: focusedSurface?.id,
             tabIndex: window.tabGroup?.windows.firstIndex(of: window),
-            tabGroup: window.tabGroup)
+            tabGroup: window.tabGroup,
+            tabColor: (window as? TerminalWindow)?.tabColor ?? .none)
     }
 
     //MARK: - NSWindowController
@@ -895,35 +1029,39 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = NSHostingView(rootView: TerminalView(
+        window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self,
-        ))
-        
+        )
+
         // If we have a default size, we want to apply it.
         if let defaultSize {
             switch (defaultSize) {
             case .frame:
                 // Frames can be applied immediately
                 defaultSize.apply(to: window)
-                
+
             case .contentIntrinsicSize:
                 // Content intrinsic size requires a short delay so that AppKit
                 // can layout our SwiftUI views.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak window] in
-                    guard let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak self, weak window] in
+                    guard let self, let window else { return }
                     defaultSize.apply(to: window)
+                    if let screen = window.screen ?? NSScreen.main {
+                        let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
+                        window.setFrameOrigin(frame.origin)
+                    }
                 }
             }
         }
-        
+
         // Store our initial frame so we can know our default later. This MUST
         // be after the defaultSize call above so that we don't re-apply our frame.
         // Note: we probably want to set this on the first frame change or something
         // so it respects cascade.
         initialFrame = window.frame
-        
+
         // In various situations, macOS automatically tabs new windows. Ghostty handles
         // its own tabbing so we DONT want this behavior. This detects this scenario and undoes
         // it.
@@ -1034,7 +1172,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let window {
             LastWindowPosition.shared.save(window)
         }
-        
+
         // Remember our last main
         Self.lastMain = self
     }
@@ -1081,32 +1219,61 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func closeOtherTabs(_ sender: Any?) {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup else { return }
-        
+
         // If we only have one window then we have no other tabs to close
         guard tabGroup.windows.count > 1 else { return }
-        
+
         // Check if we have to confirm close.
         guard tabGroup.windows.contains(where: { window in
             // Ignore ourself
             if window == self.window { return false }
-            
+
             // Ignore non-terminals
             guard let controller = window.windowController as? TerminalController else {
                 return false
             }
-            
+
             // Check if any surfaces require confirmation
             return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
         }) else {
             self.closeOtherTabsImmediately()
             return
         }
-        
+
         confirmClose(
             messageText: "Close Other Tabs?",
             informativeText: "At least one other tab still has a running process. If you close the tab the process will be killed."
         ) {
             self.closeOtherTabsImmediately()
+        }
+    }
+
+    @IBAction func closeTabsOnTheRight(_ sender: Any?) {
+        guard let window = window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+
+        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        guard !tabsToClose.isEmpty else { return }
+
+        let needsConfirm = tabsToClose.contains { (_, candidate) in
+            guard let controller = candidate.windowController as? TerminalController else {
+                return false
+            }
+
+            return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
+        }
+
+        if !needsConfirm {
+            self.closeTabsOnTheRightImmediately()
+            return
+        }
+
+        confirmClose(
+            messageText: "Close Tabs on the Right?",
+            informativeText: "At least one tab to the right still has a running process. If you close the tab the process will be killed."
+        ) {
+            self.closeTabsOnTheRightImmediately()
         }
     }
 
@@ -1151,7 +1318,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     //MARK: - TerminalViewDelegate
-    
+
     override func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         super.focusedSurfaceDidChange(to: to)
 
@@ -1215,7 +1382,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
-        
+
         // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
         // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
         // find a better workaround. For now, this improves things dramatically.
@@ -1228,7 +1395,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 DispatchQueue.main.async {
                     selectedWindow.makeKey()
                 }
-                
+
                 return
             }
         }
@@ -1311,6 +1478,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         closeOtherTabs(self)
     }
 
+    @objc private func onCloseTabsOnTheRight(notification: SwiftUI.Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        closeTabsOnTheRight(self)
+    }
+
     @objc private func onCloseWindow(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
@@ -1373,23 +1546,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(closeTabsOnTheRight):
+            guard let window, let tabGroup = window.tabGroup else { return false }
+            guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
+            return tabGroup.windows.enumerated().contains { $0.offset > currentIndex }
+            
         case #selector(returnToDefaultSize):
             guard let window else { return false }
-
+            
             // Native fullscreen windows can't revert to default size.
             if window.styleMask.contains(.fullScreen) {
                 return false
             }
-
+            
             // If we're fullscreen at all then we can't change size
             if fullscreenStyle?.isFullscreen ?? false {
                 return false
             }
-
+            
             // If our window is already the default size or we don't have a
             // default size, then disable.
             return defaultSize?.isChanged(for: window) ?? false
-
+            
         default:
             return super.validateMenuItem(item)
         }
@@ -1405,10 +1583,10 @@ extension TerminalController {
     enum DefaultSize {
         /// A frame, set with `window.setFrame`
         case frame(NSRect)
-        
+
         /// A content size, set with `window.setContentSize`
         case contentIntrinsicSize
-        
+
         func isChanged(for window: NSWindow) -> Bool {
             switch self {
             case .frame(let rect):
@@ -1417,11 +1595,11 @@ extension TerminalController {
                 guard let view = window.contentView else {
                     return false
                 }
-                
+
                 return view.frame.size != view.intrinsicContentSize
             }
         }
-        
+
         func apply(to window: NSWindow) {
             switch self {
             case .frame(let rect):
@@ -1430,13 +1608,13 @@ extension TerminalController {
                 guard let size = window.contentView?.intrinsicContentSize else {
                     return
                 }
-                
+
                 window.setContentSize(size)
                 window.constrainToScreen()
             }
         }
     }
-    
+
     private var defaultSize: DefaultSize? {
         if derivedConfig.maximize, let screen = window?.screen ?? NSScreen.main {
             // Maximize takes priority, we take up the full screen we're on.

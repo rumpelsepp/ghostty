@@ -43,13 +43,34 @@ pub const Command = struct {
         return true;
     }
 
-    /// Convert this command to a C struct.
+    /// Convert this command to a C struct at comptime.
     pub fn comptimeCval(self: Command) C {
         assert(@inComptime());
 
         return .{
             .action_key = @tagName(self.action),
             .action = std.fmt.comptimePrint("{f}", .{self.action}),
+            .title = self.title,
+            .description = self.description,
+        };
+    }
+
+    /// Convert this command to a C struct at runtime.
+    ///
+    /// This shares memory with the original command.
+    ///
+    /// The action string is allocated using the provided allocator. You can
+    /// free the slice directly if you need to but we recommend an arena
+    /// for this.
+    pub fn cval(self: Command, alloc: Allocator) Allocator.Error!C {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        self.action.format(&buf.writer) catch return error.OutOfMemory;
+        const action = try buf.toOwnedSliceSentinel(0);
+
+        return .{
+            .action_key = @tagName(self.action),
+            .action = action.ptr,
             .title = self.title,
             .description = self.description,
         };
@@ -166,6 +187,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .start_search,
             .title = "Start Search",
             .description = "Start a search if one isn't already active.",
+        }},
+
+        .search_selection => comptime &.{.{
+            .action = .search_selection,
+            .title = "Search Selection",
+            .description = "Start a search for the current text selection.",
         }},
 
         .end_search => comptime &.{.{
@@ -413,8 +440,14 @@ fn actionCommands(action: Action.Key) []const Command {
 
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
-            .title = "Change Title...",
+            .title = "Change Terminal Title...",
             .description = "Prompt for a new title for the current terminal.",
+        }},
+
+        .prompt_tab_title => comptime &.{.{
+            .action = .prompt_tab_title,
+            .title = "Change Tab Title...",
+            .description = "Prompt for a new title for the current tab.",
         }},
 
         .new_split => comptime &.{
@@ -473,10 +506,29 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .goto_window => comptime &.{
+            .{
+                .action = .{ .goto_window = .previous },
+                .title = "Focus Window: Previous",
+                .description = "Focus the previous window, if any.",
+            },
+            .{
+                .action = .{ .goto_window = .next },
+                .title = "Focus Window: Next",
+                .description = "Focus the next window, if any.",
+            },
+        },
+
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
             .description = "Toggle the zoom state of the current split.",
+        }},
+
+        .toggle_readonly => comptime &.{.{
+            .action = .toggle_readonly,
+            .title = "Toggle Read-Only Mode",
+            .description = "Toggle read-only mode for the current surface.",
         }},
 
         .equalize_splits => comptime &.{.{
@@ -538,6 +590,11 @@ fn actionCommands(action: Action.Key) []const Command {
                 .title = "Close Other Tabs",
                 .description = "Close all tabs in this window except the current one.",
             },
+            .{
+                .action = .{ .close_tab = .right },
+                .title = "Close Tabs to the Right",
+                .description = "Close all tabs to the right of the current one.",
+            },
         },
 
         .close_window => comptime &.{.{
@@ -588,6 +645,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle whether mouse events are reported to terminal applications.",
         }},
 
+        .toggle_background_opacity => comptime &.{.{
+            .action = .toggle_background_opacity,
+            .title = "Toggle Background Opacity",
+            .description = "Toggle the background opacity of a window that started transparent.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
@@ -635,6 +698,11 @@ fn actionCommands(action: Action.Key) []const Command {
         .write_scrollback_file,
         .goto_tab,
         .resize_split,
+        .activate_key_table,
+        .activate_key_table_once,
+        .deactivate_key_table,
+        .deactivate_all_key_tables,
+        .end_key_sequence,
         .crash,
         => comptime &.{},
 

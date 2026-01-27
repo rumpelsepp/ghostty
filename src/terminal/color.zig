@@ -168,7 +168,7 @@ pub const Name = enum(u8) {
     }
 
     /// Default colors for tagged values.
-    pub fn default(self: Name) !RGB {
+    pub fn default(self: Name) error{NoDefaultValue}!RGB {
         return switch (self) {
             .black => RGB{ .r = 0x1D, .g = 0x1F, .b = 0x21 },
             .red => RGB{ .r = 0xCC, .g = 0x66, .b = 0x66 },
@@ -355,7 +355,7 @@ pub const RGB = packed struct(u24) {
     /// Parse a color from a floating point intensity value.
     ///
     /// The value should be between 0.0 and 1.0, inclusive.
-    fn fromIntensity(value: []const u8) !u8 {
+    fn fromIntensity(value: []const u8) error{InvalidFormat}!u8 {
         const i = std.fmt.parseFloat(f64, value) catch {
             @branchHint(.cold);
             return error.InvalidFormat;
@@ -372,7 +372,7 @@ pub const RGB = packed struct(u24) {
     ///
     /// The string can contain 1, 2, 3, or 4 characters and represents the color
     /// value scaled in 4, 8, 12, or 16 bits, respectively.
-    fn fromHex(value: []const u8) !u8 {
+    fn fromHex(value: []const u8) error{InvalidFormat}!u8 {
         if (value.len == 0 or value.len > 4) {
             @branchHint(.cold);
             return error.InvalidFormat;
@@ -414,7 +414,7 @@ pub const RGB = packed struct(u24) {
     ///    where `r`, `g`, and `b` are a single hexadecimal digit.
     ///    These specify a color with 4, 8, 12, and 16 bits of precision
     ///    per color channel.
-    pub fn parse(value: []const u8) !RGB {
+    pub fn parse(value: []const u8) error{InvalidFormat}!RGB {
         if (value.len == 0) {
             @branchHint(.cold);
             return error.InvalidFormat;

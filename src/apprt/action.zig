@@ -115,6 +115,11 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
+    /// Toggle the window background opacity. This only has an effect
+    /// if the window started as transparent (non-opaque), and toggles
+    /// it between fully opaque and the configured background opacity.
+    toggle_background_opacity,
+
     /// Moves a tab by a relative offset.
     ///
     /// Adjusts the tab position based on `offset` (e.g., -1 for left, +1
@@ -128,6 +133,9 @@ pub const Action = union(Key) {
 
     /// Jump to a specific split.
     goto_split: GotoSplit,
+
+    /// Jump to next/previous window.
+    goto_window: GotoWindow,
 
     /// Resize the split in the given direction.
     resize_split: ResizeSplit,
@@ -189,8 +197,9 @@ pub const Action = union(Key) {
     set_title: SetTitle,
 
     /// Set the title of the target to a prompted value. It is up to
-    /// the apprt to prompt.
-    prompt_title,
+    /// the apprt to prompt. The value specifies whether to prompt for the
+    /// surface title or the tab title.
+    prompt_title: PromptTitle,
 
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
@@ -240,6 +249,9 @@ pub const Action = union(Key) {
     /// The UI should show some indication that the user is in a sequenced
     /// key mode because other input may be ignored.
     key_sequence: KeySequence,
+
+    /// A key table has been activated or deactivated.
+    key_table: KeyTable,
 
     /// A terminal color was changed programmatically through things
     /// such as OSC 10/11.
@@ -301,7 +313,9 @@ pub const Action = union(Key) {
     /// A command has finished,
     command_finished: CommandFinished,
 
-    /// Start the search overlay with an optional initial needle.
+    /// Start the search overlay with an optional initial needle. If the
+    /// search is already active and the needle is non-empty, update the
+    /// current search needle and focus the search input.
     start_search: StartSearch,
 
     /// End the search overlay, clearing the search state and hiding it.
@@ -312,6 +326,9 @@ pub const Action = union(Key) {
 
     /// The currently selected search match index (1-based).
     search_selected: SearchSelected,
+
+    /// The readonly state of the surface has changed.
+    readonly: Readonly,
 
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
@@ -328,9 +345,11 @@ pub const Action = union(Key) {
         toggle_quick_terminal,
         toggle_command_palette,
         toggle_visibility,
+        toggle_background_opacity,
         move_tab,
         goto_tab,
         goto_split,
+        goto_window,
         resize_split,
         equalize_splits,
         toggle_split_zoom,
@@ -357,6 +376,7 @@ pub const Action = union(Key) {
         float_window,
         secure_input,
         key_sequence,
+        key_table,
         color_change,
         reload_config,
         config_change,
@@ -374,6 +394,7 @@ pub const Action = union(Key) {
         end_search,
         search_total,
         search_selected,
+        readonly,
     };
 
     /// Sync with: ghostty_action_u
@@ -469,6 +490,13 @@ pub const GotoSplit = enum(c_int) {
     right,
 };
 
+// This is made extern (c_int) to make interop easier with our embedded
+// runtime. The small size cost doesn't make a difference in our union.
+pub const GotoWindow = enum(c_int) {
+    previous,
+    next,
+};
+
 /// The amount to resize the split by and the direction to resize it in.
 pub const ResizeSplit = extern struct {
     amount: u16,
@@ -531,9 +559,20 @@ pub const QuitTimer = enum(c_int) {
     stop,
 };
 
+pub const Readonly = enum(c_int) {
+    off,
+    on,
+};
+
 pub const MouseVisibility = enum(c_int) {
     visible,
     hidden,
+};
+
+/// Whether to prompt for the surface title or tab title.
+pub const PromptTitle = enum(c_int) {
+    surface,
+    tab,
 };
 
 pub const MouseOverLink = struct {
@@ -678,6 +717,50 @@ pub const KeySequence = union(enum) {
     }
 };
 
+pub const KeyTable = union(enum) {
+    activate: []const u8,
+    deactivate,
+    deactivate_all,
+
+    // Sync with: ghostty_action_key_table_tag_e
+    pub const Tag = enum(c_int) {
+        activate,
+        deactivate,
+        deactivate_all,
+    };
+
+    // Sync with: ghostty_action_key_table_u
+    pub const CValue = extern union {
+        activate: extern struct {
+            name: [*]const u8,
+            len: usize,
+        },
+    };
+
+    // Sync with: ghostty_action_key_table_s
+    pub const C = extern struct {
+        tag: Tag,
+        value: CValue,
+    };
+
+    pub fn cval(self: KeyTable) C {
+        return switch (self) {
+            .activate => |name| .{
+                .tag = .activate,
+                .value = .{ .activate = .{ .name = name.ptr, .len = name.len } },
+            },
+            .deactivate => .{
+                .tag = .deactivate,
+                .value = undefined,
+            },
+            .deactivate_all => .{
+                .tag = .deactivate_all,
+                .value = undefined,
+            },
+        };
+    }
+};
+
 pub const ColorChange = extern struct {
     kind: ColorKind,
     r: u8,
@@ -767,6 +850,8 @@ pub const CloseTabMode = enum(c_int) {
     this,
     /// Close all other tabs.
     other,
+    /// Close all tabs to the right of the current tab.
+    right,
 };
 
 pub const CommandFinished = struct {

@@ -19,6 +19,7 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
+const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
@@ -26,6 +27,7 @@ const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
+const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
@@ -360,6 +362,63 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"key-sequence" = struct {
+            pub const name = "key-sequence";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeySequence,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const @"key-table" = struct {
+            pub const name = "key-table";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeyTable,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const readonly = struct {
+            pub const name = "readonly";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .getter = getReadonly,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -553,6 +612,9 @@ pub const Surface = extern struct {
         /// The search overlay
         search_overlay: *SearchOverlay,
 
+        /// The key state overlay
+        key_state_overlay: *KeyStateOverlay,
+
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
 
@@ -617,6 +679,10 @@ pub const Surface = extern struct {
         vscroll_policy: gtk.ScrollablePolicy = .natural,
         vadj_signal_group: ?*gobject.SignalGroup = null,
 
+        // Key state tracking for key sequences and tables
+        key_sequence: std.ArrayListUnmanaged([:0]const u8) = .empty,
+        key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -624,6 +690,12 @@ pub const Surface = extern struct {
         progress_bar_overlay: *gtk.ProgressBar,
         error_page: *adw.StatusPage,
         terminal_page: *gtk.Overlay,
+
+        /// The context for this surface (window, tab, or split)
+        context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Whether primary paste (middle-click paste) is enabled.
+        gtk_enable_primary_paste: bool = true,
 
         pub var offset: c_int = 0;
     };
@@ -650,6 +722,7 @@ pub const Surface = extern struct {
     pub fn setParent(
         self: *Self,
         parent: *CoreSurface,
+        context: apprt.surface.NewSurfaceContext,
     ) void {
         const priv = self.private();
 
@@ -659,6 +732,9 @@ pub const Surface = extern struct {
             log.warn("setParent called after surface is already realized", .{});
             return;
         }
+
+        // Store the context so initSurface can use it
+        priv.context = context;
 
         // Setup our font size
         const font_size_ptr = glib.ext.create(font.face.DesiredSize);
@@ -670,10 +746,8 @@ pub const Surface = extern struct {
         // Remainder needs a config. If there is no config we just assume
         // we aren't inheriting any of these values.
         if (priv.config) |config_obj| {
-            const config = config_obj.get();
-
-            // Setup our pwd if configured to inherit
-            if (config.@"window-inherit-working-directory") {
+            // Setup our cwd if configured to inherit
+            if (apprt.surface.shouldInheritWorkingDirectory(context, config_obj.get())) {
                 if (parent.rt_surface.surface.getPwd()) |pwd| {
                     priv.pwd = glib.ext.dupeZ(u8, pwd);
                     self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -776,6 +850,74 @@ pub const Surface = extern struct {
     pub fn redrawInspector(self: *Self) void {
         const priv = self.private();
         if (priv.inspector) |v| v.queueRender();
+    }
+
+    /// Handle a key sequence action from the apprt.
+    pub fn keySequenceAction(
+        self: *Self,
+        value: apprt.action.KeySequence,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-sequence".impl.param_spec);
+
+        switch (value) {
+            .trigger => |trigger| {
+                // Convert the trigger to a human-readable label
+                var buf: std.Io.Writer.Allocating = .init(alloc);
+                defer buf.deinit();
+                if (gtk_key.labelFromTrigger(&buf.writer, trigger)) |success| {
+                    if (!success) return;
+                } else |_| return error.OutOfMemory;
+
+                // Make space
+                try priv.key_sequence.ensureUnusedCapacity(alloc, 1);
+
+                // Copy and append
+                const duped = try buf.toOwnedSliceSentinel(0);
+                errdefer alloc.free(duped);
+                priv.key_sequence.appendAssumeCapacity(duped);
+            },
+            .end => {
+                // Free all the stored strings and clear
+                for (priv.key_sequence.items) |s| alloc.free(s);
+                priv.key_sequence.clearAndFree(alloc);
+            },
+        }
+    }
+
+    /// Handle a key table action from the apprt.
+    pub fn keyTableAction(
+        self: *Self,
+        value: apprt.action.KeyTable,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-table".impl.param_spec);
+
+        switch (value) {
+            .activate => |name| {
+                // Duplicate the name string and push onto stack
+                const duped = try alloc.dupeZ(u8, name);
+                errdefer alloc.free(duped);
+                try priv.key_tables.append(alloc, duped);
+            },
+            .deactivate => {
+                // Pop and free the top table
+                if (priv.key_tables.pop()) |s| alloc.free(s);
+            },
+            .deactivate_all => {
+                // Free all tables and clear
+                for (priv.key_tables.items) |s| alloc.free(s);
+                priv.key_tables.clearAndFree(alloc);
+            },
+        }
     }
 
     pub fn showOnScreenKeyboard(self: *Self, event: ?*gdk.Event) bool {
@@ -979,6 +1121,20 @@ pub const Surface = extern struct {
 
             self.sendDesktopNotification(title, body);
         }
+
+        return true;
+    }
+
+    /// Get the readonly state from the core surface.
+    pub fn getReadonly(self: *Self) bool {
+        const priv: *Private = self.private();
+        const surface = priv.core_surface orelse return false;
+        return surface.readonly;
+    }
+
+    /// Notify anyone interested that the readonly status has changed.
+    pub fn setReadonly(self: *Self, _: apprt.Action.Value(.readonly)) bool {
+        self.as(gobject.Object).notifyByPspec(properties.readonly.impl.param_spec);
 
         return true;
     }
@@ -1392,19 +1548,17 @@ pub const Surface = extern struct {
         const xft_dpi_scale = xft_scale: {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-            const settings = gtk.Settings.getDefault() orelse break :xft_scale 1.0;
-            var value = std.mem.zeroes(gobject.Value);
-            defer value.unset();
-            _ = value.init(gobject.ext.typeFor(c_int));
-            settings.as(gobject.Object).getProperty("gtk-xft-dpi", &value);
-            const gtk_xft_dpi = value.getInt();
+            const gtk_xft_dpi = gsettings.get(.@"gtk-xft-dpi") orelse {
+                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                break :xft_scale 1.0;
+            };
 
             // Use a value of 1.0 for the XFT DPI scale if the setting is <= 0
             // See:
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/a7738a4d269bfdf4d8d5429ca73ccdd9b2450421
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/9759d3fd81129608dd78116001928f2aed974ead
             if (gtk_xft_dpi <= 0) {
-                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                log.warn("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
                 break :xft_scale 1.0;
             }
 
@@ -1552,8 +1706,8 @@ pub const Surface = extern struct {
         self: *Self,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) !void {
-        try Clipboard.request(
+    ) !bool {
+        return try Clipboard.request(
             self,
             clipboard_type,
             state,
@@ -1648,6 +1802,9 @@ pub const Surface = extern struct {
         priv.im_composing = false;
         priv.im_len = 0;
 
+        // Read GTK primary paste setting
+        priv.gtk_enable_primary_paste = gsettings.get(.@"gtk-enable-primary-paste") orelse true;
+
         // Set up to handle items being dropped on our surface. Files can be dropped
         // from Nautilus and strings can be dropped from many programs. The order
         // of these types matter.
@@ -1658,13 +1815,7 @@ pub const Surface = extern struct {
         };
         priv.drop_target.setGtypes(&drop_target_types, drop_target_types.len);
 
-        // Initialize our GLArea. We only set the values we can't set
-        // in our blueprint file.
-        const gl_area = priv.gl_area;
-        gl_area.setRequiredVersion(
-            renderer.OpenGL.MIN_VERSION_MAJOR,
-            renderer.OpenGL.MIN_VERSION_MINOR,
-        );
+        // Setup properties we can't set from our Blueprint file.
         self.as(gtk.Widget).setCursorFromName("text");
 
         // Initialize our config
@@ -1793,6 +1944,14 @@ pub const Surface = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
+
+        // Clean up key sequence and key table state
+        const alloc = Application.default().allocator();
+        for (priv.key_sequence.items) |s| alloc.free(s);
+        priv.key_sequence.deinit(alloc);
+        for (priv.key_tables.items) |s| alloc.free(s);
+        priv.key_tables.deinit(alloc);
+
         self.clearCgroup();
 
         gobject.Object.virtual_methods.finalize.call(
@@ -1879,6 +2038,20 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
     }
 
+    /// Get the key sequence list. Full transfer.
+    fn getKeySequence(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_sequence.items) catch null;
+    }
+
+    /// Get the key table list. Full transfer.
+    fn getKeyTable(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_tables.items) catch null;
+    }
+
     /// Return the min size, if set.
     pub fn getMinSize(self: *Self) ?*Size {
         const priv = self.private();
@@ -1956,7 +2129,7 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
     }
 
-    pub fn setSearchActive(self: *Self, active: bool) void {
+    pub fn setSearchActive(self: *Self, active: bool, needle: [:0]const u8) void {
         const priv = self.private();
         var value = gobject.ext.Value.newFrom(active);
         defer value.unset();
@@ -1965,6 +2138,10 @@ pub const Surface = extern struct {
             SearchOverlay.properties.active.name,
             &value,
         );
+
+        if (!std.mem.eql(u8, needle, "")) {
+            priv.search_overlay.setSearchContents(needle);
+        }
 
         if (active) {
             priv.search_overlay.grabFocus();
@@ -2546,6 +2723,11 @@ pub const Surface = extern struct {
 
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        if (button == .middle and !priv.gtk_enable_primary_paste) {
+            return;
+        }
+
         const consumed = consumed: {
             const gtk_mods = event.getModifierState();
             const mods = gtk_key.translateMods(gtk_mods);
@@ -2596,6 +2778,10 @@ pub const Surface = extern struct {
         const surface = priv.core_surface orelse return;
         const gtk_mods = event.getModifierState();
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        if (button == .middle and !priv.gtk_enable_primary_paste) {
+            return;
+        }
 
         const mods = gtk_key.translateMods(gtk_mods);
         const consumed = surface.mouseButtonCallback(
@@ -3076,6 +3262,7 @@ pub const Surface = extern struct {
         var config = try apprt.surface.newConfig(
             app.core(),
             priv.config.?.get(),
+            priv.context,
         );
         defer config.deinit();
 
@@ -3242,6 +3429,7 @@ pub const Surface = extern struct {
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(ResizeOverlay);
             gobject.ext.ensureType(SearchOverlay);
+            gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -3262,6 +3450,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
             class.bindTemplateChildPrivate("search_overlay", .{});
+            class.bindTemplateChildPrivate("key_state_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
@@ -3313,6 +3502,8 @@ pub const Surface = extern struct {
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,
+                properties.@"key-sequence".impl,
+                properties.@"key-table".impl,
                 properties.@"min-size".impl,
                 properties.@"mouse-shape".impl,
                 properties.@"mouse-hidden".impl,
@@ -3322,6 +3513,7 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+                properties.readonly.impl,
 
                 // For Gtk.Scrollable
                 properties.hadjustment.impl,
@@ -3489,16 +3681,30 @@ const Clipboard = struct {
     /// Request data from the clipboard (read the clipboard). This
     /// completes asynchronously and will call the `completeClipboardRequest`
     /// core surface API when done.
+    ///
+    /// Returns true if the request was started, false if the clipboard
+    /// doesn't contain text (allowing performable keybinds to pass through).
     pub fn request(
         self: *Surface,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) Allocator.Error!void {
+    ) Allocator.Error!bool {
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
             clipboard_type,
-        ) orelse return;
+        ) orelse return false;
+
+        // For paste requests, check if clipboard has text format available.
+        // This is a synchronous check that allows performable keybinds to
+        // pass through when the clipboard contains non-text content (e.g., images).
+        if (state == .paste) {
+            const formats = clipboard.getFormats();
+            if (formats.containGtype(gobject.ext.types.string) == 0) {
+                log.debug("clipboard has no text format, not starting paste request", .{});
+                return false;
+            }
+        }
 
         // Allocate our userdata
         const alloc = Application.default().allocator();
@@ -3518,6 +3724,8 @@ const Clipboard = struct {
             clipboardReadText,
             ud,
         );
+
+        return true;
     }
 
     /// Paste explicit text directly into the surface, regardless of the

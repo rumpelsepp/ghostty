@@ -56,7 +56,7 @@ extension Ghostty {
         case app
         case zig_run
     }
-    
+
     /// Returns the mechanism that launched the app. This is based on an env var so
     /// its up to the env var being set in the correct circumstance.
     static var launchSource: LaunchSource {
@@ -65,7 +65,7 @@ extension Ghostty {
             // source. If its unset we assume we're in a CLI environment.
             return .cli
         }
-        
+
         // If the env var is set but its unknown then we default back to the app.
         return LaunchSource(rawValue: envValue) ?? .app
     }
@@ -76,17 +76,17 @@ extension Ghostty {
 extension Ghostty {
     class AllocatedString {
         private let cString: ghostty_string_s
-        
+
         init(_ c: ghostty_string_s) {
             self.cString = c
         }
-        
+
         var string: String {
             guard let ptr = cString.ptr else { return "" }
             let data = Data(bytes: ptr, count: Int(cString.len))
             return String(data: data, encoding: .utf8) ?? ""
         }
-        
+
         deinit {
             ghostty_string_free(cString)
         }
@@ -330,6 +330,22 @@ extension Ghostty {
         case xray
         case custom
         case customStyle = "custom-style"
+
+        /// Bundled asset name for built-in icons
+        var assetName: String? {
+            switch self {
+            case .official: return nil
+            case .blueprint: return "BlueprintImage"
+            case .chalkboard: return "ChalkboardImage"
+            case .microchip: return "MicrochipImage"
+            case .glass: return "GlassImage"
+            case .holographic: return "HolographicImage"
+            case .paper: return "PaperImage"
+            case .retro: return "RetroImage"
+            case .xray: return "XrayImage"
+            case .custom, .customStyle: return nil
+            }
+        }
     }
 
     /// macos-icon-frame
@@ -380,6 +396,9 @@ extension Notification.Name {
     /// Close other tabs
     static let ghosttyCloseOtherTabs = Notification.Name("com.mitchellh.ghostty.closeOtherTabs")
 
+    /// Close tabs to the right of the focused tab
+    static let ghosttyCloseTabsOnTheRight = Notification.Name("com.mitchellh.ghostty.closeTabsOnTheRight")
+
     /// Close window
     static let ghosttyCloseWindow = Notification.Name("com.mitchellh.ghostty.closeWindow")
 
@@ -388,6 +407,10 @@ extension Notification.Name {
 
     /// Ring the bell
     static let ghosttyBellDidRing = Notification.Name("com.mitchellh.ghostty.ghosttyBellDidRing")
+
+    /// Readonly mode changed
+    static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
+    static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"
     static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
 
     /// Toggle maximize of current window
@@ -428,6 +451,9 @@ extension Ghostty.Notification {
     /// New window. Has base surface config requested in userinfo.
     static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
 
+    /// Present terminal. Bring the surface's window to focus without activating the app.
+    static let ghosttyPresentTerminal = Notification.Name("com.mitchellh.ghostty.presentTerminal")
+
     /// Toggle fullscreen of current window
     static let ghosttyToggleFullscreen = Notification.Name("com.mitchellh.ghostty.toggleFullscreen")
     static let FullscreenModeKey = ghosttyToggleFullscreen.rawValue
@@ -465,6 +491,10 @@ extension Ghostty.Notification {
     static let didContinueKeySequence = Notification.Name("com.mitchellh.ghostty.didContinueKeySequence")
     static let didEndKeySequence = Notification.Name("com.mitchellh.ghostty.didEndKeySequence")
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
+
+    /// Notifications related to key tables
+    static let didChangeKeyTable = Notification.Name("com.mitchellh.ghostty.didChangeKeyTable")
+    static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 }
 
 // Make the input enum hashable.

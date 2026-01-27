@@ -1,167 +1,161 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const cimgui = @import("cimgui");
+const cimgui = @import("dcimgui");
 const terminal = @import("../terminal/main.zig");
 const units = @import("units.zig");
 
 pub fn render(page: *const terminal.Page) void {
-    cimgui.c.igPushID_Ptr(page);
-    defer cimgui.c.igPopID();
+    cimgui.c.ImGui_PushIDPtr(page);
+    defer cimgui.c.ImGui_PopID();
 
-    _ = cimgui.c.igBeginTable(
+    _ = cimgui.c.ImGui_BeginTable(
         "##page_state",
         2,
         cimgui.c.ImGuiTableFlags_None,
-        .{ .x = 0, .y = 0 },
-        0,
     );
-    defer cimgui.c.igEndTable();
+    defer cimgui.c.ImGui_EndTable();
 
     {
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+        cimgui.c.ImGui_TableNextRow();
         {
-            _ = cimgui.c.igTableSetColumnIndex(0);
-            cimgui.c.igText("Memory Size");
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+            cimgui.c.ImGui_Text("Memory Size");
         }
         {
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText("%d bytes (%d KiB)", page.memory.len, units.toKibiBytes(page.memory.len));
-            cimgui.c.igText("%d VM pages", page.memory.len / std.heap.page_size_min);
-        }
-    }
-    {
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-        {
-            _ = cimgui.c.igTableSetColumnIndex(0);
-            cimgui.c.igText("Unique Styles");
-        }
-        {
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText("%d", page.styles.count());
+            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+            cimgui.c.ImGui_Text("%d bytes (%d KiB)", page.memory.len, units.toKibiBytes(page.memory.len));
+            cimgui.c.ImGui_Text("%d VM pages", page.memory.len / std.heap.page_size_min);
         }
     }
     {
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+        cimgui.c.ImGui_TableNextRow();
         {
-            _ = cimgui.c.igTableSetColumnIndex(0);
-            cimgui.c.igText("Grapheme Entries");
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+            cimgui.c.ImGui_Text("Unique Styles");
         }
         {
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText("%d", page.graphemeCount());
+            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+            cimgui.c.ImGui_Text("%d", page.styles.count());
         }
     }
     {
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+        cimgui.c.ImGui_TableNextRow();
         {
-            _ = cimgui.c.igTableSetColumnIndex(0);
-            cimgui.c.igText("Capacity");
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+            cimgui.c.ImGui_Text("Grapheme Entries");
         }
         {
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+            cimgui.c.ImGui_Text("%d", page.graphemeCount());
+        }
+    }
+    {
+        cimgui.c.ImGui_TableNextRow();
+        {
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+            cimgui.c.ImGui_Text("Capacity");
+        }
+        {
+            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+            _ = cimgui.c.ImGui_BeginTable(
                 "##capacity",
                 2,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
 
             const cap = page.capacity;
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Columns");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Columns");
                 }
 
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", @as(u32, @intCast(cap.cols)));
-                }
-            }
-
-            {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-                {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Rows");
-                }
-
-                {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", @as(u32, @intCast(cap.rows)));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", @as(u32, @intCast(cap.cols)));
                 }
             }
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Unique Styles");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Rows");
                 }
 
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", @as(u32, @intCast(cap.styles)));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", @as(u32, @intCast(cap.rows)));
                 }
             }
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Grapheme Bytes");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Unique Styles");
                 }
 
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", cap.grapheme_bytes);
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", @as(u32, @intCast(cap.styles)));
+                }
+            }
+
+            {
+                cimgui.c.ImGui_TableNextRow();
+                {
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Grapheme Bytes");
+                }
+
+                {
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", cap.grapheme_bytes);
                 }
             }
         }
     }
     {
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+        cimgui.c.ImGui_TableNextRow();
         {
-            _ = cimgui.c.igTableSetColumnIndex(0);
-            cimgui.c.igText("Size");
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+            cimgui.c.ImGui_Text("Size");
         }
         {
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+            _ = cimgui.c.ImGui_BeginTable(
                 "##size",
                 2,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
 
             const size = page.size;
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Columns");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Columns");
                 }
 
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", @as(u32, @intCast(size.cols)));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", @as(u32, @intCast(size.cols)));
                 }
             }
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Rows");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Rows");
                 }
 
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", @as(u32, @intCast(size.rows)));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", @as(u32, @intCast(size.rows)));
                 }
             }
         }

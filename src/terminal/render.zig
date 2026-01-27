@@ -816,12 +816,19 @@ pub const RenderState = struct {
         const row_pins = row_slice.items(.pin);
         const row_cells = row_slice.items(.cells);
 
+        // Our viewport point is sent in by the caller and can't be trusted.
+        // If it is outside the valid area then just return empty because
+        // we can't possibly have a link there.
+        if (viewport_point.x >= self.cols or
+            viewport_point.y >= row_pins.len) return result;
+
         // Grab our link ID
-        const link_page: *page.Page = &row_pins[viewport_point.y].node.data;
+        const link_pin: PageList.Pin = row_pins[viewport_point.y];
+        const link_page: *page.Page = &link_pin.node.data;
         const link = link: {
             const rac = link_page.getRowAndCell(
                 viewport_point.x,
-                viewport_point.y,
+                link_pin.y,
             );
 
             // The likely scenario is that our mouse isn't even over a link.
@@ -848,7 +855,7 @@ pub const RenderState = struct {
 
                 const other_page: *page.Page = &pin.node.data;
                 const other = link: {
-                    const rac = other_page.getRowAndCell(x, y);
+                    const rac = other_page.getRowAndCell(x, pin.y);
                     const link_id = other_page.lookupHyperlink(rac.cell) orelse continue;
                     break :link other_page.hyperlink_set.get(
                         other_page.memory,
@@ -1315,6 +1322,86 @@ test "string" {
 
     const expected = "AB\x00\x00\x00\n\x00\x00\x00\x00\x00\n";
     try testing.expectEqualStrings(expected, result);
+}
+
+test "linkCells with scrollback spanning pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const viewport_rows: size.CellCountInt = 10;
+    const tail_rows: size.CellCountInt = 5;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = page.std_capacity.cols,
+        .rows = viewport_rows,
+        .max_scrollback = 10_000,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    const pages = &t.screens.active.pages;
+    const first_page_cap = pages.pages.first.?.data.capacity.rows;
+
+    // Fill first page
+    for (0..first_page_cap - 1) |_| try s.nextSlice("\r\n");
+
+    // Create second page with hyperlink
+    try s.nextSlice("\r\n");
+    try s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
+    for (0..(tail_rows - 1)) |_| try s.nextSlice("\r\n");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const expected_viewport_y: usize = viewport_rows - tail_rows;
+    // BUG: This crashes without the fix
+    var cells = try state.linkCells(alloc, .{
+        .x = 0,
+        .y = expected_viewport_y,
+    });
+    defer cells.deinit(alloc);
+    try testing.expectEqual(@as(usize, 4), cells.count());
+}
+
+test "linkCells with invalid viewport point" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Row out of bound
+    {
+        var cells = try state.linkCells(
+            alloc,
+            .{ .x = 0, .y = t.rows + 10 },
+        );
+        defer cells.deinit(alloc);
+        try testing.expectEqual(0, cells.count());
+    }
+
+    // Col out of bound
+    {
+        var cells = try state.linkCells(
+            alloc,
+            .{ .x = t.cols + 10, .y = 0 },
+        );
+        defer cells.deinit(alloc);
+        try testing.expectEqual(0, cells.count());
+    }
 }
 
 test "dirty row resets highlights" {

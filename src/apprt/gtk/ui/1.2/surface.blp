@@ -72,6 +72,39 @@ Overlay terminal_page {
   };
 
   [overlay]
+  Revealer {
+    reveal-child: bind template.readonly;
+    transition-type: crossfade;
+    transition-duration: 500;
+    // Revealers take up the full size, we need this to not capture events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    Box readonly_overlay {
+      styles [
+        "readonly_overlay",
+      ]
+
+      // TODO: the tooltip doesn't actually work, but keep it here for now so
+      // that we can get the tooltip text translated.
+      has-tooltip: true;
+      tooltip-text: _("This terminal is in read-only mode. You can still view, select, and scroll through the content, but no input events will be sent to the running application.");
+      halign: end;
+      valign: start;
+      spacing: 6;
+
+      Image {
+        icon-name: "changes-prevent-symbolic";
+      }
+
+      Label {
+        label: _("Read-only");
+      }
+    }
+  }
+
+  [overlay]
   ProgressBar progress_bar_overlay {
     styles [
       "osd",
@@ -153,6 +186,12 @@ Overlay terminal_page {
     search-changed => $search_changed();
     next-match => $search_next_match();
     previous-match => $search_previous_match();
+  }
+
+  [overlay]
+  $GhosttyKeyStateOverlay key_state_overlay {
+    tables: bind template.key-table;
+    sequence: bind template.key-sequence;
   }
 
   [overlay]

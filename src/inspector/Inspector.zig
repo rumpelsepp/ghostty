@@ -7,7 +7,7 @@ const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
-const cimgui = @import("cimgui");
+const cimgui = @import("dcimgui");
 const Surface = @import("../Surface.zig");
 const font = @import("../font/main.zig");
 const input = @import("../input.zig");
@@ -126,7 +126,7 @@ const CellInspect = union(enum) {
 
 /// Setup the ImGui state. This requires an ImGui context to be set.
 pub fn setup() void {
-    const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+    const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
 
     // Enable docking, which we use heavily for the UI.
     io.ConfigFlags |= cimgui.c.ImGuiConfigFlags_DockingEnable;
@@ -144,15 +144,15 @@ pub fn setup() void {
         // This is currently hardcoded to a 2x content scale.
         const font_size = 16 * 2;
 
-        const font_config: *cimgui.c.ImFontConfig = cimgui.c.ImFontConfig_ImFontConfig();
-        defer cimgui.c.ImFontConfig_destroy(font_config);
+        var font_config: cimgui.c.ImFontConfig = undefined;
+        cimgui.ext.ImFontConfig_ImFontConfig(&font_config);
         font_config.FontDataOwnedByAtlas = false;
         _ = cimgui.c.ImFontAtlas_AddFontFromMemoryTTF(
             io.Fonts,
-            @ptrCast(@constCast(font.embedded.regular)),
-            font.embedded.regular.len,
+            @ptrCast(@constCast(font.embedded.regular.ptr)),
+            @intCast(font.embedded.regular.len),
             font_size,
-            font_config,
+            &font_config,
             null,
         );
     }
@@ -221,11 +221,7 @@ pub fn recordPtyRead(self: *Inspector, data: []const u8) !void {
 
 /// Render the frame.
 pub fn render(self: *Inspector) void {
-    const dock_id = cimgui.c.igDockSpaceOverViewport(
-        cimgui.c.igGetMainViewport(),
-        cimgui.c.ImGuiDockNodeFlags_None,
-        null,
-    );
+    const dock_id = cimgui.c.ImGui_DockSpaceOverViewport();
 
     // Render all of our data. We hold the mutex for this duration. This is
     // expensive but this is an initial implementation until it doesn't work
@@ -245,7 +241,7 @@ pub fn render(self: *Inspector) void {
     // widgets and such.
     if (builtin.mode == .Debug) {
         var show: bool = true;
-        cimgui.c.igShowDemoWindow(&show);
+        cimgui.c.ImGui_ShowDemoWindow(&show);
     }
 
     // On first render we set up the layout. We can actually do this at
@@ -261,7 +257,7 @@ fn setupLayout(self: *Inspector, dock_id_main: cimgui.c.ImGuiID) void {
     _ = self;
 
     // Our initial focus
-    cimgui.c.igSetWindowFocus_Str(window_screen);
+    cimgui.c.ImGui_SetWindowFocusStr(window_screen);
 
     // Setup our initial layout.
     const dock_id: struct {
@@ -270,7 +266,7 @@ fn setupLayout(self: *Inspector, dock_id_main: cimgui.c.ImGuiID) void {
     } = dock_id: {
         var dock_id_left: cimgui.c.ImGuiID = undefined;
         var dock_id_right: cimgui.c.ImGuiID = undefined;
-        _ = cimgui.c.igDockBuilderSplitNode(
+        _ = cimgui.ImGui_DockBuilderSplitNode(
             dock_id_main,
             cimgui.c.ImGuiDir_Left,
             0.7,
@@ -284,20 +280,20 @@ fn setupLayout(self: *Inspector, dock_id_main: cimgui.c.ImGuiID) void {
         };
     };
 
-    cimgui.c.igDockBuilderDockWindow(window_cell, dock_id.left);
-    cimgui.c.igDockBuilderDockWindow(window_modes, dock_id.left);
-    cimgui.c.igDockBuilderDockWindow(window_keyboard, dock_id.left);
-    cimgui.c.igDockBuilderDockWindow(window_termio, dock_id.left);
-    cimgui.c.igDockBuilderDockWindow(window_screen, dock_id.left);
-    cimgui.c.igDockBuilderDockWindow(window_imgui_demo, dock_id.left);
-    cimgui.c.igDockBuilderDockWindow(window_size, dock_id.right);
-    cimgui.c.igDockBuilderFinish(dock_id_main);
+    cimgui.ImGui_DockBuilderDockWindow(window_cell, dock_id.left);
+    cimgui.ImGui_DockBuilderDockWindow(window_modes, dock_id.left);
+    cimgui.ImGui_DockBuilderDockWindow(window_keyboard, dock_id.left);
+    cimgui.ImGui_DockBuilderDockWindow(window_termio, dock_id.left);
+    cimgui.ImGui_DockBuilderDockWindow(window_screen, dock_id.left);
+    cimgui.ImGui_DockBuilderDockWindow(window_imgui_demo, dock_id.left);
+    cimgui.ImGui_DockBuilderDockWindow(window_size, dock_id.right);
+    cimgui.ImGui_DockBuilderFinish(dock_id_main);
 }
 
 fn renderScreenWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.igEnd();
-    if (!cimgui.c.igBegin(
+    defer cimgui.c.ImGui_End();
+    if (!cimgui.c.ImGui_Begin(
         window_screen,
         null,
         cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
@@ -307,76 +303,70 @@ fn renderScreenWindow(self: *Inspector) void {
     const screen: *terminal.Screen = t.screens.active;
 
     {
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_screen",
             2,
             cimgui.c.ImGuiTableFlags_None,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Active Screen");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Active Screen");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText("%s", @tagName(t.screens.active_key).ptr);
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text("%s", @tagName(t.screens.active_key).ptr);
             }
         }
     }
 
-    if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+    if (cimgui.c.ImGui_CollapsingHeader(
         "Cursor",
         cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
     )) {
         {
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_BeginTable(
                 "table_cursor",
                 2,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
             inspector.cursor.renderInTable(
                 self.surface.renderer_state.terminal,
                 &screen.cursor,
             );
         } // table
 
-        cimgui.c.igTextDisabled("(Any styles not shown are not currently set)");
+        cimgui.c.ImGui_TextDisabled("(Any styles not shown are not currently set)");
     } // cursor
 
-    if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+    if (cimgui.c.ImGui_CollapsingHeader(
         "Keyboard",
         cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
     )) {
         {
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_BeginTable(
                 "table_keyboard",
                 2,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
 
             const kitty_flags = screen.kitty_keyboard.current();
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Mode");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Mode");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
                     const mode = if (kitty_flags.int() != 0) "kitty" else "legacy";
-                    cimgui.c.igText("%s", mode.ptr);
+                    cimgui.c.ImGui_Text("%s", mode.ptr);
                 }
             }
 
@@ -386,15 +376,15 @@ fn renderScreenWindow(self: *Inspector) void {
                     {
                         const value = @field(kitty_flags, field.name);
 
-                        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                        cimgui.c.ImGui_TableNextRow();
                         {
-                            _ = cimgui.c.igTableSetColumnIndex(0);
+                            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
                             const name = std.fmt.comptimePrint("{s}", .{field.name});
-                            cimgui.c.igText("%s", name.ptr);
+                            cimgui.c.ImGui_Text("%s", name.ptr);
                         }
                         {
-                            _ = cimgui.c.igTableSetColumnIndex(1);
-                            cimgui.c.igText(
+                            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                            cimgui.c.ImGui_Text(
                                 "%s",
                                 if (value) "true".ptr else "false".ptr,
                             );
@@ -403,14 +393,14 @@ fn renderScreenWindow(self: *Inspector) void {
                 }
             } else {
                 {
-                    cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                    cimgui.c.ImGui_TableNextRow();
                     {
-                        _ = cimgui.c.igTableSetColumnIndex(0);
-                        cimgui.c.igText("Xterm modify keys");
+                        _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                        cimgui.c.ImGui_Text("Xterm modify keys");
                     }
                     {
-                        _ = cimgui.c.igTableSetColumnIndex(1);
-                        cimgui.c.igText(
+                        _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                        cimgui.c.ImGui_Text(
                             "%s",
                             if (t.flags.modify_other_keys_2) "true".ptr else "false".ptr,
                         );
@@ -420,143 +410,139 @@ fn renderScreenWindow(self: *Inspector) void {
         } // table
     } // keyboard
 
-    if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+    if (cimgui.c.ImGui_CollapsingHeader(
         "Kitty Graphics",
         cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
     )) kitty_gfx: {
         if (!screen.kitty_images.enabled()) {
-            cimgui.c.igTextDisabled("(Kitty graphics are disabled)");
+            cimgui.c.ImGui_TextDisabled("(Kitty graphics are disabled)");
             break :kitty_gfx;
         }
 
         {
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_BeginTable(
                 "##kitty_graphics",
                 2,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
 
             const kitty_images = &screen.kitty_images;
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Memory Usage");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Memory Usage");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes (%d KiB)", kitty_images.total_bytes, units.toKibiBytes(kitty_images.total_bytes));
-                }
-            }
-
-            {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-                {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Memory Limit");
-                }
-                {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes (%d KiB)", kitty_images.total_limit, units.toKibiBytes(kitty_images.total_limit));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d bytes (%d KiB)", kitty_images.total_bytes, units.toKibiBytes(kitty_images.total_bytes));
                 }
             }
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Image Count");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Memory Limit");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", kitty_images.images.count());
-                }
-            }
-
-            {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-                {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Placement Count");
-                }
-                {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d", kitty_images.placements.count());
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d bytes (%d KiB)", kitty_images.total_limit, units.toKibiBytes(kitty_images.total_limit));
                 }
             }
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Image Loading");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Image Count");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%s", if (kitty_images.loading != null) "true".ptr else "false".ptr);
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", kitty_images.images.count());
+                }
+            }
+
+            {
+                cimgui.c.ImGui_TableNextRow();
+                {
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Placement Count");
+                }
+                {
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d", kitty_images.placements.count());
+                }
+            }
+
+            {
+                cimgui.c.ImGui_TableNextRow();
+                {
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Image Loading");
+                }
+                {
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%s", if (kitty_images.loading != null) "true".ptr else "false".ptr);
                 }
             }
         } // table
     } // kitty graphics
 
-    if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+    if (cimgui.c.ImGui_CollapsingHeader(
         "Internal Terminal State",
         cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
     )) {
         const pages = &screen.pages;
 
         {
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_BeginTable(
                 "##terminal_state",
                 2,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Memory Usage");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Memory Usage");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes (%d KiB)", pages.page_size, units.toKibiBytes(pages.page_size));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d bytes (%d KiB)", pages.page_size, units.toKibiBytes(pages.page_size));
                 }
             }
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Memory Limit");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Memory Limit");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes (%d KiB)", pages.maxSize(), units.toKibiBytes(pages.maxSize()));
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%d bytes (%d KiB)", pages.maxSize(), units.toKibiBytes(pages.maxSize()));
                 }
             }
 
             {
-                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                cimgui.c.ImGui_TableNextRow();
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(0);
-                    cimgui.c.igText("Viewport Location");
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                    cimgui.c.ImGui_Text("Viewport Location");
                 }
                 {
-                    _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%s", @tagName(pages.viewport).ptr);
+                    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                    cimgui.c.ImGui_Text("%s", @tagName(pages.viewport).ptr);
                 }
             }
         } // table
         //
-        if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+        if (cimgui.c.ImGui_CollapsingHeader(
             "Active Page",
             cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
         )) {
@@ -569,28 +555,26 @@ fn renderScreenWindow(self: *Inspector) void {
 /// users to toggle them on and off.
 fn renderModesWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.igEnd();
-    if (!cimgui.c.igBegin(
+    defer cimgui.c.ImGui_End();
+    if (!cimgui.c.ImGui_Begin(
         window_modes,
         null,
         cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
     )) return;
 
-    _ = cimgui.c.igBeginTable(
+    _ = cimgui.c.ImGui_BeginTable(
         "table_modes",
         3,
         cimgui.c.ImGuiTableFlags_SizingFixedFit |
             cimgui.c.ImGuiTableFlags_RowBg,
-        .{ .x = 0, .y = 0 },
-        0,
     );
-    defer cimgui.c.igEndTable();
+    defer cimgui.c.ImGui_EndTable();
 
     {
-        _ = cimgui.c.igTableSetupColumn("", cimgui.c.ImGuiTableColumnFlags_NoResize, 0, 0);
-        _ = cimgui.c.igTableSetupColumn("Number", cimgui.c.ImGuiTableColumnFlags_PreferSortAscending, 0, 0);
-        _ = cimgui.c.igTableSetupColumn("Name", cimgui.c.ImGuiTableColumnFlags_WidthStretch, 0, 0);
-        cimgui.c.igTableHeadersRow();
+        cimgui.c.ImGui_TableSetupColumn("", cimgui.c.ImGuiTableColumnFlags_NoResize);
+        cimgui.c.ImGui_TableSetupColumn("Number", cimgui.c.ImGuiTableColumnFlags_PreferSortAscending);
+        cimgui.c.ImGui_TableSetupColumn("Name", cimgui.c.ImGuiTableColumnFlags_WidthStretch);
+        cimgui.c.ImGui_TableHeadersRow();
     }
 
     const t = self.surface.renderer_state.terminal;
@@ -598,59 +582,57 @@ fn renderModesWindow(self: *Inspector) void {
         @setEvalBranchQuota(6000);
         const tag: terminal.modes.ModeTag = @bitCast(@as(terminal.modes.ModeTag.Backing, field.value));
 
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+        cimgui.c.ImGui_TableNextRow();
         {
-            _ = cimgui.c.igTableSetColumnIndex(0);
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
             var value: bool = t.modes.get(@field(terminal.Mode, field.name));
-            _ = cimgui.c.igCheckbox("", &value);
+            _ = cimgui.c.ImGui_Checkbox("", &value);
         }
         {
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText(
+            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+            cimgui.c.ImGui_Text(
                 "%s%d",
                 if (tag.ansi) "" else "?",
                 @as(u32, @intCast(tag.value)),
             );
         }
         {
-            _ = cimgui.c.igTableSetColumnIndex(2);
+            _ = cimgui.c.ImGui_TableSetColumnIndex(2);
             const name = std.fmt.comptimePrint("{s}", .{field.name});
-            cimgui.c.igText("%s", name.ptr);
+            cimgui.c.ImGui_Text("%s", name.ptr);
         }
     }
 }
 
 fn renderSizeWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.igEnd();
-    if (!cimgui.c.igBegin(
+    defer cimgui.c.ImGui_End();
+    if (!cimgui.c.ImGui_Begin(
         window_size,
         null,
         cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
     )) return;
 
-    cimgui.c.igSeparatorText("Dimensions");
+    cimgui.c.ImGui_SeparatorText("Dimensions");
 
     {
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_size",
             2,
             cimgui.c.ImGuiTableFlags_None,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
         // Screen Size
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Screen Size");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Screen Size");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "%dpx x %dpx",
                     self.surface.size.screen.width,
                     self.surface.size.screen.height,
@@ -660,15 +642,15 @@ fn renderSizeWindow(self: *Inspector) void {
 
         // Grid Size
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Grid Size");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Grid Size");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
                 const grid_size = self.surface.size.grid();
-                cimgui.c.igText(
+                cimgui.c.ImGui_Text(
                     "%dc x %dr",
                     grid_size.columns,
                     grid_size.rows,
@@ -678,14 +660,14 @@ fn renderSizeWindow(self: *Inspector) void {
 
         // Cell Size
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Cell Size");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Cell Size");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "%dpx x %dpx",
                     self.surface.size.cell.width,
                     self.surface.size.cell.height,
@@ -695,14 +677,14 @@ fn renderSizeWindow(self: *Inspector) void {
 
         // Padding
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Window Padding");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Window Padding");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "T=%d B=%d L=%d R=%d px",
                     self.surface.size.padding.top,
                     self.surface.size.padding.bottom,
@@ -713,27 +695,25 @@ fn renderSizeWindow(self: *Inspector) void {
         }
     }
 
-    cimgui.c.igSeparatorText("Font");
+    cimgui.c.ImGui_SeparatorText("Font");
 
     {
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_font",
             2,
             cimgui.c.ImGuiTableFlags_None,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Size (Points)");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Size (Points)");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "%.2f pt",
                     self.surface.font_size.points,
                 );
@@ -741,14 +721,14 @@ fn renderSizeWindow(self: *Inspector) void {
         }
 
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Size (Pixels)");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Size (Pixels)");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "%.2f px",
                     self.surface.font_size.pixels(),
                 );
@@ -756,17 +736,15 @@ fn renderSizeWindow(self: *Inspector) void {
         }
     }
 
-    cimgui.c.igSeparatorText("Mouse");
+    cimgui.c.ImGui_SeparatorText("Mouse");
 
     {
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_mouse",
             2,
             cimgui.c.ImGuiTableFlags_None,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
         const mouse = &self.surface.mouse;
         const t = self.surface.renderer_state.terminal;
@@ -781,14 +759,14 @@ fn renderSizeWindow(self: *Inspector) void {
                 break :pt pt.coord();
             };
 
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Hover Grid");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Hover Grid");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "row=%d, col=%d",
                     hover_point.y,
                     hover_point.x,
@@ -804,14 +782,14 @@ fn renderSizeWindow(self: *Inspector) void {
                 },
             }).convert(.terminal, self.surface.size).terminal;
 
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Hover Point");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Hover Point");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "(%dpx, %dpx)",
                     @as(i64, @intFromFloat(coord.x)),
                     @as(i64, @intFromFloat(coord.y)),
@@ -824,23 +802,23 @@ fn renderSizeWindow(self: *Inspector) void {
         } else false;
 
         click: {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Click State");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Click State");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
                 if (!any_click) {
-                    cimgui.c.igText("none");
+                    cimgui.c.ImGui_Text("none");
                     break :click;
                 }
 
                 for (mouse.click_state, 0..) |state, i| {
                     if (state != .press) continue;
                     const button: input.MouseButton = @enumFromInt(i);
-                    cimgui.c.igSameLine(0, 0);
-                    cimgui.c.igText("%s", (switch (button) {
+                    cimgui.c.ImGui_SameLine();
+                    cimgui.c.ImGui_Text("%s", (switch (button) {
                         .unknown => "?",
                         .left => "L",
                         .middle => "M",
@@ -868,14 +846,14 @@ fn renderSizeWindow(self: *Inspector) void {
                 break :pt pt.coord();
             };
 
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Click Grid");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Click Grid");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "row=%d, col=%d",
                     left_click_point.y,
                     left_click_point.x,
@@ -884,14 +862,14 @@ fn renderSizeWindow(self: *Inspector) void {
         }
 
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Click Point");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Click Point");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText(
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text(
                     "(%dpx, %dpx)",
                     @as(u32, @intFromFloat(mouse.left_click_xpos)),
                     @as(u32, @intFromFloat(mouse.left_click_ypos)),
@@ -903,8 +881,8 @@ fn renderSizeWindow(self: *Inspector) void {
 
 fn renderCellWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.igEnd();
-    if (!cimgui.c.igBegin(
+    defer cimgui.c.ImGui_End();
+    if (!cimgui.c.ImGui_Begin(
         window_cell,
         null,
         cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
@@ -913,45 +891,45 @@ fn renderCellWindow(self: *Inspector) void {
     // Our popup for the picker
     const popup_picker = "Cell Picker";
 
-    if (cimgui.c.igButton("Picker", .{ .x = 0, .y = 0 })) {
+    if (cimgui.c.ImGui_Button("Picker")) {
         // Request a cell
         self.cell.request();
 
-        cimgui.c.igOpenPopup_Str(
+        cimgui.c.ImGui_OpenPopup(
             popup_picker,
             cimgui.c.ImGuiPopupFlags_None,
         );
     }
 
-    if (cimgui.c.igBeginPopupModal(
+    if (cimgui.c.ImGui_BeginPopupModal(
         popup_picker,
         null,
         cimgui.c.ImGuiWindowFlags_AlwaysAutoResize,
     )) popup: {
-        defer cimgui.c.igEndPopup();
+        defer cimgui.c.ImGui_EndPopup();
 
         // Once we select a cell, close this popup.
         if (self.cell == .selected) {
-            cimgui.c.igCloseCurrentPopup();
+            cimgui.c.ImGui_CloseCurrentPopup();
             break :popup;
         }
 
-        cimgui.c.igText(
+        cimgui.c.ImGui_Text(
             "Click on a cell in the terminal to inspect it.\n" ++
                 "The click will be intercepted by the picker, \n" ++
                 "so it won't be sent to the terminal.",
         );
-        cimgui.c.igSeparator();
+        cimgui.c.ImGui_Separator();
 
-        if (cimgui.c.igButton("Cancel", .{ .x = 0, .y = 0 })) {
-            cimgui.c.igCloseCurrentPopup();
+        if (cimgui.c.ImGui_Button("Cancel")) {
+            cimgui.c.ImGui_CloseCurrentPopup();
         }
     } // cell pick popup
 
-    cimgui.c.igSeparator();
+    cimgui.c.ImGui_Separator();
 
     if (self.cell != .selected) {
-        cimgui.c.igText("No cell selected.");
+        cimgui.c.ImGui_Text("No cell selected.");
         return;
     }
 
@@ -965,8 +943,8 @@ fn renderCellWindow(self: *Inspector) void {
 
 fn renderKeyboardWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.igEnd();
-    if (!cimgui.c.igBegin(
+    defer cimgui.c.ImGui_End();
+    if (!cimgui.c.ImGui_Begin(
         window_keyboard,
         null,
         cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
@@ -974,47 +952,44 @@ fn renderKeyboardWindow(self: *Inspector) void {
 
     list: {
         if (self.key_events.empty()) {
-            cimgui.c.igText("No recorded key events. Press a key with the " ++
+            cimgui.c.ImGui_Text("No recorded key events. Press a key with the " ++
                 "terminal focused to record it.");
             break :list;
         }
 
-        if (cimgui.c.igButton("Clear", .{ .x = 0, .y = 0 })) {
+        if (cimgui.c.ImGui_Button("Clear")) {
             var it = self.key_events.iterator(.forward);
             while (it.next()) |v| v.deinit(self.surface.alloc);
             self.key_events.clear();
             self.vt_stream.handler.current_seq = 1;
         }
 
-        cimgui.c.igSeparator();
+        cimgui.c.ImGui_Separator();
 
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_key_events",
             1,
             //cimgui.c.ImGuiTableFlags_ScrollY |
             cimgui.c.ImGuiTableFlags_RowBg |
                 cimgui.c.ImGuiTableFlags_Borders,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
         var it = self.key_events.iterator(.reverse);
         while (it.next()) |ev| {
             // Need to push an ID so that our selectable is unique.
-            cimgui.c.igPushID_Ptr(ev);
-            defer cimgui.c.igPopID();
+            cimgui.c.ImGui_PushIDPtr(ev);
+            defer cimgui.c.ImGui_PopID();
 
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-            _ = cimgui.c.igTableSetColumnIndex(0);
+            cimgui.c.ImGui_TableNextRow();
+            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
 
             var buf: [1024]u8 = undefined;
             const label = ev.label(&buf) catch "Key Event";
-            _ = cimgui.c.igSelectable_BoolPtr(
+            _ = cimgui.c.ImGui_SelectableBoolPtr(
                 label.ptr,
                 &ev.imgui_state.selected,
                 cimgui.c.ImGuiSelectableFlags_None,
-                .{ .x = 0, .y = 0 },
             );
 
             if (!ev.imgui_state.selected) continue;
@@ -1034,7 +1009,7 @@ fn getKeyAction(self: *Inspector) KeyAction {
     };
 
     inline for (keys) |k| {
-        if (cimgui.c.igIsKeyPressed_Bool(k.key, false)) {
+        if (cimgui.c.ImGui_IsKeyPressed(k.key)) {
             return k.action;
         }
     }
@@ -1043,8 +1018,8 @@ fn getKeyAction(self: *Inspector) KeyAction {
 
 fn renderTermioWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.igEnd();
-    if (!cimgui.c.igBegin(
+    defer cimgui.c.ImGui_End();
+    if (!cimgui.c.ImGui_Begin(
         window_termio,
         null,
         cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
@@ -1057,21 +1032,21 @@ fn renderTermioWindow(self: *Inspector) void {
             "Pause##pause_play"
         else
             "Resume##pause_play";
-        if (cimgui.c.igButton(pause_play.ptr, .{ .x = 0, .y = 0 })) {
+        if (cimgui.c.ImGui_Button(pause_play.ptr)) {
             self.vt_stream.handler.active = !self.vt_stream.handler.active;
         }
 
-        cimgui.c.igSameLine(0, cimgui.c.igGetStyle().*.ItemInnerSpacing.x);
-        if (cimgui.c.igButton("Filter", .{ .x = 0, .y = 0 })) {
-            cimgui.c.igOpenPopup_Str(
+        cimgui.c.ImGui_SameLineEx(0, cimgui.c.ImGui_GetStyle().*.ItemInnerSpacing.x);
+        if (cimgui.c.ImGui_Button("Filter")) {
+            cimgui.c.ImGui_OpenPopup(
                 popup_filter,
                 cimgui.c.ImGuiPopupFlags_None,
             );
         }
 
         if (!self.vt_events.empty()) {
-            cimgui.c.igSameLine(0, cimgui.c.igGetStyle().*.ItemInnerSpacing.x);
-            if (cimgui.c.igButton("Clear", .{ .x = 0, .y = 0 })) {
+            cimgui.c.ImGui_SameLineEx(0, cimgui.c.ImGui_GetStyle().*.ItemInnerSpacing.x);
+            if (cimgui.c.ImGui_Button("Clear")) {
                 var it = self.vt_events.iterator(.forward);
                 while (it.next()) |v| v.deinit(self.surface.alloc);
                 self.vt_events.clear();
@@ -1081,44 +1056,36 @@ fn renderTermioWindow(self: *Inspector) void {
             }
         }
 
-        cimgui.c.igSeparator();
+        cimgui.c.ImGui_Separator();
 
         if (self.vt_events.empty()) {
-            cimgui.c.igText("Waiting for events...");
+            cimgui.c.ImGui_Text("Waiting for events...");
             break :list;
         }
 
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_vt_events",
             3,
             cimgui.c.ImGuiTableFlags_RowBg |
                 cimgui.c.ImGuiTableFlags_Borders,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
-        cimgui.c.igTableSetupColumn(
+        cimgui.c.ImGui_TableSetupColumn(
             "Seq",
             cimgui.c.ImGuiTableColumnFlags_WidthFixed,
-            0,
-            0,
         );
-        cimgui.c.igTableSetupColumn(
+        cimgui.c.ImGui_TableSetupColumn(
             "Kind",
             cimgui.c.ImGuiTableColumnFlags_WidthFixed,
-            0,
-            0,
         );
-        cimgui.c.igTableSetupColumn(
+        cimgui.c.ImGui_TableSetupColumn(
             "Description",
             cimgui.c.ImGuiTableColumnFlags_WidthStretch,
-            0,
-            0,
         );
 
         // Handle keyboard navigation when window is focused
-        if (cimgui.c.igIsWindowFocused(cimgui.c.ImGuiFocusedFlags_RootAndChildWindows)) {
+        if (cimgui.c.ImGui_IsWindowFocused(cimgui.c.ImGuiFocusedFlags_RootAndChildWindows)) {
             const key_pressed = self.getKeyAction();
 
             switch (key_pressed) {
@@ -1174,11 +1141,11 @@ fn renderTermioWindow(self: *Inspector) void {
         var it = self.vt_events.iterator(.reverse);
         while (it.next()) |ev| {
             // Need to push an ID so that our selectable is unique.
-            cimgui.c.igPushID_Ptr(ev);
-            defer cimgui.c.igPopID();
+            cimgui.c.ImGui_PushIDPtr(ev);
+            defer cimgui.c.ImGui_PopID();
 
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-            _ = cimgui.c.igTableNextColumn();
+            cimgui.c.ImGui_TableNextRow();
+            _ = cimgui.c.ImGui_TableNextColumn();
 
             // Store the previous selection state to detect changes
             const was_selected = ev.imgui_selected;
@@ -1189,11 +1156,10 @@ fn renderTermioWindow(self: *Inspector) void {
             }
 
             // Handle selectable widget
-            if (cimgui.c.igSelectable_BoolPtr(
+            if (cimgui.c.ImGui_SelectableBoolPtr(
                 "##select",
                 &ev.imgui_selected,
                 cimgui.c.ImGuiSelectableFlags_SpanAllColumns,
-                .{ .x = 0, .y = 0 },
             )) {
                 // If selection state changed, update keyboard navigation state
                 if (ev.imgui_selected != was_selected) {
@@ -1205,40 +1171,38 @@ fn renderTermioWindow(self: *Inspector) void {
                 }
             }
 
-            cimgui.c.igSameLine(0, 0);
-            cimgui.c.igText("%d", ev.seq);
-            _ = cimgui.c.igTableNextColumn();
-            cimgui.c.igText("%s", @tagName(ev.kind).ptr);
-            _ = cimgui.c.igTableNextColumn();
-            cimgui.c.igText("%s", ev.str.ptr);
+            cimgui.c.ImGui_SameLine();
+            cimgui.c.ImGui_Text("%d", ev.seq);
+            _ = cimgui.c.ImGui_TableNextColumn();
+            cimgui.c.ImGui_Text("%s", @tagName(ev.kind).ptr);
+            _ = cimgui.c.ImGui_TableNextColumn();
+            cimgui.c.ImGui_Text("%s", ev.str.ptr);
 
             // If the event is selected, we render info about it. For now
-            // we put this in the last column because thats the widest and
+            // we put this in the last column because that's the widest and
             // imgui has no way to make a column span.
             if (ev.imgui_selected) {
                 {
-                    _ = cimgui.c.igBeginTable(
+                    _ = cimgui.c.ImGui_BeginTable(
                         "details",
                         2,
                         cimgui.c.ImGuiTableFlags_None,
-                        .{ .x = 0, .y = 0 },
-                        0,
                     );
-                    defer cimgui.c.igEndTable();
+                    defer cimgui.c.ImGui_EndTable();
                     inspector.cursor.renderInTable(
                         self.surface.renderer_state.terminal,
                         &ev.cursor,
                     );
 
                     {
-                        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                        cimgui.c.ImGui_TableNextRow();
                         {
-                            _ = cimgui.c.igTableSetColumnIndex(0);
-                            cimgui.c.igText("Scroll Region");
+                            _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                            cimgui.c.ImGui_Text("Scroll Region");
                         }
                         {
-                            _ = cimgui.c.igTableSetColumnIndex(1);
-                            cimgui.c.igText(
+                            _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                            cimgui.c.ImGui_Text(
                                 "T=%d B=%d L=%d R=%d",
                                 ev.scrolling_region.top,
                                 ev.scrolling_region.bottom,
@@ -1253,51 +1217,49 @@ fn renderTermioWindow(self: *Inspector) void {
                         var buf: [256]u8 = undefined;
                         const key = std.fmt.bufPrintZ(&buf, "{s}", .{entry.key_ptr.*}) catch
                             "<internal error>";
-                        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-                        _ = cimgui.c.igTableNextColumn();
-                        cimgui.c.igText("%s", key.ptr);
-                        _ = cimgui.c.igTableNextColumn();
-                        cimgui.c.igText("%s", entry.value_ptr.ptr);
+                        cimgui.c.ImGui_TableNextRow();
+                        _ = cimgui.c.ImGui_TableNextColumn();
+                        cimgui.c.ImGui_Text("%s", key.ptr);
+                        _ = cimgui.c.ImGui_TableNextColumn();
+                        cimgui.c.ImGui_Text("%s", entry.value_ptr.ptr);
                     }
                 }
 
                 // If this is the selected event and scrolling is needed, scroll to it
                 if (self.need_scroll_to_selected and self.is_keyboard_selection) {
-                    cimgui.c.igSetScrollHereY(0.5);
+                    cimgui.c.ImGui_SetScrollHereY(0.5);
                     self.need_scroll_to_selected = false;
                 }
             }
         }
     } // table
 
-    if (cimgui.c.igBeginPopupModal(
+    if (cimgui.c.ImGui_BeginPopupModal(
         popup_filter,
         null,
         cimgui.c.ImGuiWindowFlags_AlwaysAutoResize,
     )) {
-        defer cimgui.c.igEndPopup();
+        defer cimgui.c.ImGui_EndPopup();
 
-        cimgui.c.igText("Changed filter settings will only affect future events.");
+        cimgui.c.ImGui_Text("Changed filter settings will only affect future events.");
 
-        cimgui.c.igSeparator();
+        cimgui.c.ImGui_Separator();
 
         {
-            _ = cimgui.c.igBeginTable(
+            _ = cimgui.c.ImGui_BeginTable(
                 "table_filter_kind",
                 3,
                 cimgui.c.ImGuiTableFlags_None,
-                .{ .x = 0, .y = 0 },
-                0,
             );
-            defer cimgui.c.igEndTable();
+            defer cimgui.c.ImGui_EndTable();
 
             inline for (@typeInfo(terminal.Parser.Action.Tag).@"enum".fields) |field| {
                 const tag = @field(terminal.Parser.Action.Tag, field.name);
                 if (tag == .apc_put or tag == .dcs_put) continue;
 
-                _ = cimgui.c.igTableNextColumn();
+                _ = cimgui.c.ImGui_TableNextColumn();
                 var value = !self.vt_stream.handler.filter_exclude.contains(tag);
-                if (cimgui.c.igCheckbox(@tagName(tag).ptr, &value)) {
+                if (cimgui.c.ImGui_Checkbox(@tagName(tag).ptr, &value)) {
                     if (value) {
                         self.vt_stream.handler.filter_exclude.remove(tag);
                     } else {
@@ -1307,22 +1269,22 @@ fn renderTermioWindow(self: *Inspector) void {
             }
         } // Filter kind table
 
-        cimgui.c.igSeparator();
+        cimgui.c.ImGui_Separator();
 
-        cimgui.c.igText(
+        cimgui.c.ImGui_Text(
             "Filter by string. Empty displays all, \"abc\" finds lines\n" ++
                 "containing \"abc\", \"abc,xyz\" finds lines containing \"abc\"\n" ++
                 "or \"xyz\", \"-abc\" excludes lines containing \"abc\".",
         );
         _ = cimgui.c.ImGuiTextFilter_Draw(
-            self.vt_stream.handler.filter_text,
+            &self.vt_stream.handler.filter_text,
             "##filter_text",
             0,
         );
 
-        cimgui.c.igSeparator();
-        if (cimgui.c.igButton("Close", .{ .x = 0, .y = 0 })) {
-            cimgui.c.igCloseCurrentPopup();
+        cimgui.c.ImGui_Separator();
+        if (cimgui.c.ImGui_Button("Close")) {
+            cimgui.c.ImGui_CloseCurrentPopup();
         }
     } // filter popup
 }

@@ -26,6 +26,7 @@
   wasmtime,
   wraptest,
   zig,
+  zig_0_15,
   zip,
   llvmPackages_latest,
   bzip2,
@@ -70,7 +71,6 @@
   wayland-scanner,
   wayland-protocols,
   zon2nix,
-  system,
   pkgs,
   # needed by GTK for loading SVG icons while running from within the
   # developer shell
@@ -100,7 +100,7 @@ in
         scdoc
         zig
         zip
-        zon2nix.packages.${system}.zon2nix
+        zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix
 
         # For web and wasm stuff
         nodejs

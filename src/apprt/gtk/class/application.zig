@@ -8,6 +8,8 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+const build_config = @import("../../../build_config.zig");
+const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const cgroup = @import("../cgroup.zig");
@@ -659,11 +661,16 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
+            .goto_window => return Action.gotoWindow(value),
+
             .goto_tab => return Action.gotoTab(target, value),
 
             .initial_size => return Action.initialSize(target, value),
 
             .inspector => return Action.controlInspector(target, value),
+
+            .key_sequence => return Action.keySequence(target, value),
+            .key_table => return Action.keyTable(target, value),
 
             .mouse_over_link => Action.mouseOverLink(target, value),
             .mouse_shape => Action.mouseShape(target, value),
@@ -693,7 +700,7 @@ pub const Application = extern struct {
 
             .progress_report => return Action.progressReport(target, value),
 
-            .prompt_title => return Action.promptTitle(target),
+            .prompt_title => return Action.promptTitle(target, value),
 
             .quit => self.quit(),
 
@@ -726,8 +733,9 @@ pub const Application = extern struct {
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
+            .readonly => return Action.setReadonly(target, value),
 
-            .start_search => Action.startSearch(target),
+            .start_search => Action.startSearch(target, value),
             .end_search => Action.endSearch(target),
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
@@ -737,8 +745,8 @@ pub const Application = extern struct {
             .close_all_windows,
             .float_window,
             .toggle_visibility,
+            .toggle_background_opacity,
             .cell_size,
-            .key_sequence,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -1583,7 +1591,7 @@ pub const Application = extern struct {
             .dark;
         log.debug("style manager changed scheme={}", .{scheme});
 
-        const priv = self.private();
+        const priv: *Private = self.private();
         const core_app = priv.core_app;
         core_app.colorSchemeEvent(self.rt(), scheme) catch |err| {
             log.warn("error updating app color scheme err={}", .{err});
@@ -1595,6 +1603,26 @@ pub const Application = extern struct {
                     .{err},
                 );
             };
+        }
+
+        if (gtk_version.atLeast(4, 20, 0)) {
+            const gtk_scheme: gtk.InterfaceColorScheme = switch (scheme) {
+                .light => gtk.InterfaceColorScheme.light,
+                .dark => gtk.InterfaceColorScheme.dark,
+            };
+            var value = gobject.ext.Value.newFrom(gtk_scheme);
+            gobject.Object.setProperty(
+                priv.css_provider.as(gobject.Object),
+                "prefers-color-scheme",
+                &value,
+            );
+            for (priv.custom_css_providers.items) |css_provider| {
+                gobject.Object.setProperty(
+                    css_provider.as(gobject.Object),
+                    "prefers-color-scheme",
+                    &value,
+                );
+            }
         }
     }
 
@@ -1993,6 +2021,69 @@ const Action = struct {
         }
     }
 
+    pub fn gotoWindow(direction: apprt.action.GotoWindow) bool {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        // The window we're starting from is typically our active window.
+        const starting: *glib.List = @as(?*glib.List, glist.findCustom(
+            null,
+            findActiveWindow,
+        )) orelse glist;
+
+        // Go forward or backwards in the list until we find a valid
+        // window that is visible.
+        var current_: ?*glib.List = starting;
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
+        // If we reached here, we didn't find a valid window to focus.
+        // Wrap around.
+        current_ = switch (direction) {
+            .next => glist,
+            .previous => last: {
+                var end: *glib.List = glist;
+                while (end.f_next) |next| end = next;
+                break :last end;
+            },
+        };
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            if (current_ == starting) break;
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
+        return false;
+    }
+
+    fn gotoWindowMaybe(gtk_window: *gtk.Window) bool {
+        // If it is already active skip it.
+        if (gtk_window.isActive() != 0) return false;
+        // If it is hidden, skip it.
+        if (gtk_window.as(gtk.Widget).isVisible() == 0) return false;
+        // If it isn't a Ghostty window, skip it.
+        const window = gobject.ext.cast(
+            Window,
+            gtk_window,
+        ) orelse return false;
+
+        // Focus our active surface
+        const surface = window.getActiveSurface() orelse return false;
+        gtk.Window.present(gtk_window);
+        surface.grabFocus();
+        return true;
+    }
+
     pub fn initialSize(
         target: apprt.Target,
         value: apprt.action.InitialSize,
@@ -2147,8 +2238,8 @@ const Action = struct {
             .{},
         );
 
-        // Create a new tab
-        win.newTab(parent);
+        // Create a new tab with window context (first tab in new window)
+        win.newTabForWindow(parent);
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2230,12 +2321,18 @@ const Action = struct {
         };
     }
 
-    pub fn promptTitle(target: apprt.Target) bool {
-        switch (target) {
-            .app => return false,
-            .surface => |v| {
-                v.rt_surface.surface.promptTitle();
-                return true;
+    pub fn promptTitle(target: apprt.Target, value: apprt.action.PromptTitle) bool {
+        switch (value) {
+            .surface => switch (target) {
+                .app => return false,
+                .surface => |v| {
+                    v.rt_surface.surface.promptTitle();
+                    return true;
+                },
+            },
+            .tab => {
+                // GTK does not yet support tab title prompting
+                return false;
             },
         }
     }
@@ -2303,9 +2400,13 @@ const Action = struct {
                     SplitTree,
                     surface.as(gtk.Widget),
                 ) orelse {
-                    log.warn("surface is not in a split tree, ignoring goto_split", .{});
+                    log.warn("surface is not in a split tree, ignoring resize_split", .{});
                     return false;
                 };
+
+                // If the tree has no splits (only one leaf), this action is not performable.
+                // This allows the key event to pass through to the terminal.
+                if (!tree.getIsSplit()) return false;
 
                 return tree.resize(
                     switch (value.direction) {
@@ -2342,17 +2443,17 @@ const Action = struct {
         }
     }
 
-    pub fn startSearch(target: apprt.Target) void {
+    pub fn startSearch(target: apprt.Target, value: apprt.action.StartSearch) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+            .surface => |v| v.rt_surface.surface.setSearchActive(true, value.needle),
         }
     }
 
     pub fn endSearch(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+            .surface => |v| v.rt_surface.surface.setSearchActive(false, ""),
         }
     }
 
@@ -2453,6 +2554,18 @@ const Action = struct {
             .surface => |core| {
                 // TODO: pass surface ID when we have that
                 const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a split tree, ignoring toggle_split_zoom", .{});
+                    return false;
+                };
+
+                // If the tree has no splits (only one leaf), this action is not performable.
+                // This allows the key event to pass through to the terminal.
+                if (!tree.getIsSplit()) return false;
+
                 return surface.as(gtk.Widget).activateAction("split-tree.zoom", null) != 0;
             },
         }
@@ -2564,6 +2677,45 @@ const Action = struct {
             },
         }
     }
+
+    pub fn setReadonly(target: apprt.Target, value: apprt.Action.Value(.readonly)) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().setReadonly(value);
+            },
+        }
+    }
+
+    pub fn keySequence(target: apprt.Target, value: apprt.Action.Value(.key_sequence)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_sequence action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keySequenceAction(value) catch |err| {
+                    log.warn("error handling key_sequence action: {}", .{err});
+                };
+                return true;
+            },
+        }
+    }
+
+    pub fn keyTable(target: apprt.Target, value: apprt.Action.Value(.key_table)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_table action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keyTableAction(value) catch |err| {
+                    log.warn("error handling key_table action: {}", .{err});
+                };
+                return true;
+            },
+        }
+    }
 };
 
 /// This sets various GTK-related environment variables as necessary
@@ -2585,7 +2737,9 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
         /// disable it.
         @"vulkan-disable": bool = false,
     } = .{
-        .opengl = config.@"gtk-opengl-debug",
+        // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
+        // to enable OpenGL debugging.
+        .opengl = state.logging.stderr and config.@"gtk-opengl-debug",
     };
 
     var gdk_disable: struct {

@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
+
 const appVersion = @import("build.zig.zon").version;
 const minimumZigVersion = @import("build.zig.zon").minimum_zig_version;
 

@@ -170,6 +170,19 @@ pub fn SplitTree(comptime V: type) type {
             return self.nodes.len == 0;
         }
 
+        /// Returns true if this tree has more than one split (i.e., the root
+        /// is a split node). This is useful for determining if actions like
+        /// resize_split or toggle_split_zoom are performable.
+        pub fn isSplit(self: *const Self) bool {
+            // An empty tree is not split.
+            if (self.isEmpty()) return false;
+            // The root node is at index 0. If it's a split, we have multiple splits.
+            return switch (self.nodes[0]) {
+                .split => true,
+                .leaf => false,
+            };
+        }
+
         /// An iterator over all the views in the tree.
         pub fn iterator(
             self: *const Self,
@@ -760,9 +773,9 @@ pub fn SplitTree(comptime V: type) type {
         /// Resize the nearest split matching the layout by the given ratio.
         /// Positive is right and down.
         ///
-        /// The ratio is a value between 0 and 1 representing the percentage
-        /// to move the divider in the given direction. The percentage is
-        /// of the entire grid size, not just the specific split size.
+        /// The ratio is a signed delta representing the percentage to move
+        /// the divider. The percentage is of the entire grid size, not just
+        /// the specific split size.
         /// We use the entire grid size because that's what Ghostty's
         /// `resize_split` keybind does, because it maps to a general human
         /// understanding of moving a split relative to the entire window
@@ -781,7 +794,7 @@ pub fn SplitTree(comptime V: type) type {
             layout: Split.Layout,
             ratio: f16,
         ) Allocator.Error!Self {
-            assert(ratio >= 0 and ratio <= 1);
+            assert(ratio >= -1 and ratio <= 1);
             assert(!std.math.isNan(ratio));
             assert(!std.math.isInf(ratio));
 
@@ -1325,6 +1338,36 @@ const TestView = struct {
         return self.label;
     }
 };
+
+test "SplitTree: isSplit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Empty tree should not be split
+    var empty: TestTree = .empty;
+    defer empty.deinit();
+    try testing.expect(!empty.isSplit());
+
+    // Single node tree should not be split
+    var v1: TestView = .{ .label = "A" };
+    var single: TestTree = try TestTree.init(alloc, &v1);
+    defer single.deinit();
+    try testing.expect(!single.isSplit());
+
+    // Split tree should be split
+    var v2: TestView = .{ .label = "B" };
+    var tree2: TestTree = try TestTree.init(alloc, &v2);
+    defer tree2.deinit();
+    var split = try single.split(
+        alloc,
+        .root,
+        .right,
+        0.5,
+        &tree2,
+    );
+    defer split.deinit();
+    try testing.expect(split.isSplit());
+}
 
 test "SplitTree: empty tree" {
     const testing = std.testing;
@@ -2004,6 +2047,32 @@ test "SplitTree: resize" {
             \\+-------------++---+
             \\|      A      || B |
             \\+-------------++---+
+            \\
+        );
+    }
+
+    // Resize the other direction (negative ratio)
+    {
+        var resized = try split.resize(
+            alloc,
+            at: {
+                var it = split.iterator();
+                break :at while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .horizontal, // resize left
+            -0.25,
+        );
+        defer resized.deinit();
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
+        defer alloc.free(str);
+        try testing.expectEqualStrings(str,
+            \\+---++-------------+
+            \\| A ||      B      |
+            \\+---++-------------+
             \\
         );
     }

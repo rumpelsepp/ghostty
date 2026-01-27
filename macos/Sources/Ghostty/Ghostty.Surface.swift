@@ -62,6 +62,26 @@ extension Ghostty {
             }
         }
 
+        /// Check if a key event matches a keybinding.
+        ///
+        /// This checks whether the given key event would trigger a keybinding in the terminal.
+        /// If it matches, returns the binding flags indicating properties of the matched binding.
+        ///
+        /// - Parameter event: The key event to check
+        /// - Returns: The binding flags if a binding matches, or nil if no binding matches
+        @MainActor
+        func keyIsBinding(_ event: ghostty_input_key_s) -> Input.BindingFlags? {
+            var flags = ghostty_binding_flags_e(0)
+            guard ghostty_surface_key_is_binding(surface, event, &flags) else { return nil }
+            return Input.BindingFlags(cFlags: flags)
+        }
+
+        /// See `keyIsBinding(_ event: ghostty_input_key_s)`.
+        @MainActor
+        func keyIsBinding(_ event: Input.KeyEvent) -> Input.BindingFlags? {
+            event.withCValue { keyIsBinding($0) }
+        }
+
         /// Whether the terminal has captured mouse input.
         ///
         /// When the mouse is captured, the terminal application is receiving mouse events
@@ -133,17 +153,6 @@ extension Ghostty {
             return action.withCString { cString in
                 ghostty_surface_binding_action(surface, cString, UInt(len - 1))
             }
-        }
-
-        /// Command options for this surface.
-        @MainActor
-        func commands() throws -> [Command] {
-            var ptr: UnsafeMutablePointer<ghostty_command_s>? = nil
-            var count: Int = 0
-            ghostty_surface_commands(surface, &ptr, &count)
-            guard let ptr else { throw Error.apiFailed }
-            let buffer = UnsafeBufferPointer(start: ptr, count: count)
-            return Array(buffer).map { Command(cValue: $0) }.filter { $0.isSupported }
         }
     }
 }

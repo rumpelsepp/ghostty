@@ -158,9 +158,6 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
     );
 
     for (@typeInfo(Action).@"enum".fields) |field| {
-        if (std.mem.eql(u8, "help", field.name)) continue;
-        if (std.mem.eql(u8, "version", field.name)) continue;
-
         const options = @field(Action, field.name).options();
         // assumes options will never be created with only <_name> members
         if (@typeInfo(options).@"struct".fields.len == 0) continue;
@@ -194,9 +191,6 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
     );
 
     for (@typeInfo(Action).@"enum".fields) |field| {
-        if (std.mem.eql(u8, "help", field.name)) continue;
-        if (std.mem.eql(u8, "version", field.name)) continue;
-
         const options = @field(Action, field.name).options();
         if (@typeInfo(options).@"struct".fields.len == 0) continue;
 
@@ -272,9 +266,6 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
     );
 
     for (@typeInfo(Action).@"enum".fields) |field| {
-        if (std.mem.eql(u8, "help", field.name)) continue;
-        if (std.mem.eql(u8, "version", field.name)) continue;
-
         try writer.writeAll(pad1 ++ "topLevel+=\" +" ++ field.name ++ "\"\n");
     }
 
@@ -296,7 +287,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\  else                    prev="${COMP_WORDS[COMP_CWORD-1]}"
         \\  fi
         \\
-        \\  # current completion is double quoted add a space so the curor progresses
+        \\  # current completion is double quoted add a space so the cursor progresses
         \\  if [[ "$2" == \"*\" ]]; then
         \\    COMPREPLY=( "$cur " );
         \\    return;

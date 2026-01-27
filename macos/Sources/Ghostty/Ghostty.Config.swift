@@ -33,14 +33,16 @@ extension Ghostty {
             return diags
         }
 
-        init() {
-            if let cfg = Self.loadConfig() {
-                self.config = cfg
-            }
+        init(config: ghostty_config_t?) {
+            self.config = config
         }
 
-        init(clone config: ghostty_config_t) {
-            self.config = ghostty_config_clone(config)
+        convenience init(at path: String? = nil, finalize: Bool = true) {
+            self.init(config: Self.loadConfig(at: path, finalize: finalize))
+        }
+
+        convenience init(clone config: ghostty_config_t) {
+            self.init(config: ghostty_config_clone(config))
         }
 
         deinit {
@@ -48,7 +50,10 @@ extension Ghostty {
         }
 
         /// Initializes a new configuration and loads all the values.
-        static private func loadConfig() -> ghostty_config_t? {
+        /// - Parameters:
+        ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
+        ///   - finalize: Whether to finalize the configuration to populate default values.
+        static private func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
                 logger.critical("ghostty_config_new failed")
@@ -59,7 +64,11 @@ extension Ghostty {
             // We only do this on macOS because other Apple platforms do not have the
             // same filesystem concept.
 #if os(macOS)
-            ghostty_config_load_default_files(cfg);
+            if let path {
+                ghostty_config_load_file(cfg, path)
+            } else {
+                ghostty_config_load_default_files(cfg)
+            }
 
             // We only load CLI args when not running in Xcode because in Xcode we
             // pass some special parameters to control the debugger.
@@ -74,9 +83,10 @@ extension Ghostty {
             // have to do this synchronously. When we support config updating we can do
             // this async and update later.
 
-            // Finalize will make our defaults available.
-            ghostty_config_finalize(cfg)
-
+            if finalize {
+                // Finalize will make our defaults available.
+                ghostty_config_finalize(cfg)
+            }
             // Log any configuration errors. These will be automatically shown in a
             // pop-up window too.
             let diagsCount = ghostty_config_diagnostics_count(cfg)
@@ -121,6 +131,14 @@ extension Ghostty {
             var v: CUnsignedInt = 0
             let key = "bell-features"
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return .init() }
+            return .init(rawValue: v)
+        }
+
+        var splitPreserveZoom: SplitPreserveZoom {
+            guard let config = self.config else { return .init() }
+            var v: CUnsignedInt = 0
+            let key = "split-preserve-zoom"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return .init() }
             return .init(rawValue: v)
         }
 
@@ -402,12 +420,12 @@ extension Ghostty {
             return v;
         }
 
-        var backgroundBlurRadius: Int {
-            guard let config = self.config else { return 1 }
-            var v: Int = 0
+        var backgroundBlur: BackgroundBlur {
+            guard let config = self.config else { return .disabled }
+            var v: Int16 = 0
             let key = "background-blur"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return v;
+            return BackgroundBlur(fromCValue: v)
         }
 
         var unfocusedSplitOpacity: Double {
@@ -614,6 +632,16 @@ extension Ghostty {
             let str = String(cString: ptr)
             return Scrollbar(rawValue: str) ?? defaultValue
         }
+
+        var commandPaletteEntries: [Ghostty.Command] {
+            guard let config = self.config else { return [] }
+            var v: ghostty_config_command_list_s = .init()
+            let key = "command-palette-entry"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
+            guard v.len > 0 else { return [] }
+            let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
+            return buffer.map { Ghostty.Command(cValue: $0) }
+        }
     }
 }
 
@@ -626,6 +654,68 @@ extension Ghostty.Config {
         case download
     }
 
+    /// Background blur configuration that maps from the C API values.
+    /// Positive values represent blur radius, special negative values
+    /// represent macOS-specific glass effects.
+    enum BackgroundBlur: Equatable {
+        case disabled
+        case radius(Int)
+        case macosGlassRegular
+        case macosGlassClear
+
+        init(fromCValue value: Int16) {
+            switch value {
+            case 0:
+                self = .disabled
+            case -1:
+                if #available(macOS 26.0, *) {
+                    self = .macosGlassRegular
+                } else {
+                    self = .disabled
+                }
+            case -2:
+                if #available(macOS 26.0, *) {
+                    self = .macosGlassClear
+                } else {
+                    self = .disabled
+                }
+            default:
+                self = .radius(Int(value))
+            }
+        }
+
+        var isEnabled: Bool {
+            switch self {
+            case .disabled:
+                return false
+            default:
+                return true
+            }
+        }
+
+        /// Returns true if this is a macOS glass style (regular or clear).
+        var isGlassStyle: Bool {
+            switch self {
+            case .macosGlassRegular, .macosGlassClear:
+                return true
+            default:
+                return false
+            }
+        }
+
+        /// Returns the blur radius if applicable, nil for glass effects.
+        var radius: Int? {
+            switch self {
+            case .disabled:
+                return nil
+            case .radius(let r):
+                return r
+            case .macosGlassRegular, .macosGlassClear:
+                return nil
+            }
+        }
+    }
+
     struct BellFeatures: OptionSet {
         let rawValue: CUnsignedInt
 
@@ -634,6 +724,12 @@ extension Ghostty.Config {
         static let attention = BellFeatures(rawValue: 1 << 2)
         static let title = BellFeatures(rawValue: 1 << 3)
         static let border = BellFeatures(rawValue: 1 << 4)
+    }
+
+    struct SplitPreserveZoom: OptionSet {
+        let rawValue: CUnsignedInt
+
+        static let navigation = SplitPreserveZoom(rawValue: 1 << 0)
     }
     
     enum MacDockDropBehavior: String {

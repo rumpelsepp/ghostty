@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const cimgui = @import("cimgui");
+const cimgui = @import("dcimgui");
 const terminal = @import("../terminal/main.zig");
 
 /// A cell being inspected. This duplicates much of the data in
@@ -55,24 +55,22 @@ pub const Cell = struct {
         y: usize,
     ) void {
         // We have a selected cell, show information about it.
-        _ = cimgui.c.igBeginTable(
+        _ = cimgui.c.ImGui_BeginTable(
             "table_cursor",
             2,
             cimgui.c.ImGuiTableFlags_None,
-            .{ .x = 0, .y = 0 },
-            0,
         );
-        defer cimgui.c.igEndTable();
+        defer cimgui.c.ImGui_EndTable();
 
         {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Grid Position");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Grid Position");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText("row=%d col=%d", y, x);
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text("row=%d col=%d", y, x);
             }
         }
 
@@ -82,18 +80,18 @@ pub const Cell = struct {
         // the single glyph in an image view so it looks _identical_ to the
         // terminal.
         codepoint: {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText("Codepoints");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text("Codepoints");
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                if (cimgui.c.igBeginListBox("##codepoints", .{ .x = 0, .y = 0 })) {
-                    defer cimgui.c.igEndListBox();
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                if (cimgui.c.ImGui_BeginListBox("##codepoints", .{ .x = 0, .y = 0 })) {
+                    defer cimgui.c.ImGui_EndListBox();
 
                     if (self.codepoint == 0) {
-                        _ = cimgui.c.igSelectable_Bool("(empty)", false, 0, .{});
+                        _ = cimgui.c.ImGui_SelectableEx("(empty)", false, 0, .{});
                         break :codepoint;
                     }
 
@@ -102,42 +100,42 @@ pub const Cell = struct {
                     {
                         const key = std.fmt.bufPrintZ(&buf, "U+{X}", .{self.codepoint}) catch
                             "<internal error>";
-                        _ = cimgui.c.igSelectable_Bool(key.ptr, false, 0, .{});
+                        _ = cimgui.c.ImGui_SelectableEx(key.ptr, false, 0, .{});
                     }
 
                     // All extras
                     for (self.cps) |cp| {
                         const key = std.fmt.bufPrintZ(&buf, "U+{X}", .{cp}) catch
                             "<internal error>";
-                        _ = cimgui.c.igSelectable_Bool(key.ptr, false, 0, .{});
+                        _ = cimgui.c.ImGui_SelectableEx(key.ptr, false, 0, .{});
                     }
                 }
             }
         }
 
         // Character width property
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-        _ = cimgui.c.igTableSetColumnIndex(0);
-        cimgui.c.igText("Width Property");
-        _ = cimgui.c.igTableSetColumnIndex(1);
-        cimgui.c.igText(@tagName(self.wide));
+        cimgui.c.ImGui_TableNextRow();
+        _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+        cimgui.c.ImGui_Text("Width Property");
+        _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+        cimgui.c.ImGui_Text(@tagName(self.wide));
 
         // If we have a color then we show the color
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-        _ = cimgui.c.igTableSetColumnIndex(0);
-        cimgui.c.igText("Foreground Color");
-        _ = cimgui.c.igTableSetColumnIndex(1);
+        cimgui.c.ImGui_TableNextRow();
+        _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+        cimgui.c.ImGui_Text("Foreground Color");
+        _ = cimgui.c.ImGui_TableSetColumnIndex(1);
         switch (self.style.fg_color) {
-            .none => cimgui.c.igText("default"),
+            .none => cimgui.c.ImGui_Text("default"),
             .palette => |idx| {
                 const rgb = t.colors.palette.current[idx];
-                cimgui.c.igValue_Int("Palette", idx);
+                cimgui.c.ImGui_Text("Palette %d", idx);
                 var color: [3]f32 = .{
                     @as(f32, @floatFromInt(rgb.r)) / 255,
                     @as(f32, @floatFromInt(rgb.g)) / 255,
                     @as(f32, @floatFromInt(rgb.b)) / 255,
                 };
-                _ = cimgui.c.igColorEdit3(
+                _ = cimgui.c.ImGui_ColorEdit3(
                     "color_fg",
                     &color,
                     cimgui.c.ImGuiColorEditFlags_DisplayHex |
@@ -152,7 +150,7 @@ pub const Cell = struct {
                     @as(f32, @floatFromInt(rgb.g)) / 255,
                     @as(f32, @floatFromInt(rgb.b)) / 255,
                 };
-                _ = cimgui.c.igColorEdit3(
+                _ = cimgui.c.ImGui_ColorEdit3(
                     "color_fg",
                     &color,
                     cimgui.c.ImGuiColorEditFlags_DisplayHex |
@@ -162,21 +160,21 @@ pub const Cell = struct {
             },
         }
 
-        cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-        _ = cimgui.c.igTableSetColumnIndex(0);
-        cimgui.c.igText("Background Color");
-        _ = cimgui.c.igTableSetColumnIndex(1);
+        cimgui.c.ImGui_TableNextRow();
+        _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+        cimgui.c.ImGui_Text("Background Color");
+        _ = cimgui.c.ImGui_TableSetColumnIndex(1);
         switch (self.style.bg_color) {
-            .none => cimgui.c.igText("default"),
+            .none => cimgui.c.ImGui_Text("default"),
             .palette => |idx| {
                 const rgb = t.colors.palette.current[idx];
-                cimgui.c.igValue_Int("Palette", idx);
+                cimgui.c.ImGui_Text("Palette %d", idx);
                 var color: [3]f32 = .{
                     @as(f32, @floatFromInt(rgb.r)) / 255,
                     @as(f32, @floatFromInt(rgb.g)) / 255,
                     @as(f32, @floatFromInt(rgb.b)) / 255,
                 };
-                _ = cimgui.c.igColorEdit3(
+                _ = cimgui.c.ImGui_ColorEdit3(
                     "color_bg",
                     &color,
                     cimgui.c.ImGuiColorEditFlags_DisplayHex |
@@ -191,7 +189,7 @@ pub const Cell = struct {
                     @as(f32, @floatFromInt(rgb.g)) / 255,
                     @as(f32, @floatFromInt(rgb.b)) / 255,
                 };
-                _ = cimgui.c.igColorEdit3(
+                _ = cimgui.c.ImGui_ColorEdit3(
                     "color_bg",
                     &color,
                     cimgui.c.ImGuiColorEditFlags_DisplayHex |
@@ -209,17 +207,17 @@ pub const Cell = struct {
         inline for (styles) |style| style: {
             if (!@field(self.style.flags, style)) break :style;
 
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            cimgui.c.ImGui_TableNextRow();
             {
-                _ = cimgui.c.igTableSetColumnIndex(0);
-                cimgui.c.igText(style.ptr);
+                _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+                cimgui.c.ImGui_Text(style.ptr);
             }
             {
-                _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText("true");
+                _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+                cimgui.c.ImGui_Text("true");
             }
         }
 
-        cimgui.c.igTextDisabled("(Any styles not shown are not currently set)");
+        cimgui.c.ImGui_TextDisabled("(Any styles not shown are not currently set)");
     }
 };

@@ -146,7 +146,7 @@ pub const Image = union(enum) {
     /// Mark the current image to be replaced with a pending one. This will
     /// attempt to update the existing texture if we have one, otherwise it
     /// will act like a new upload.
-    pub fn markForReplace(self: *Image, alloc: Allocator, img: Image) !void {
+    pub fn markForReplace(self: *Image, alloc: Allocator, img: Image) void {
         assert(img.isPending());
 
         // If we have pending data right now, free it.
@@ -216,9 +216,8 @@ pub const Image = union(enum) {
 
     /// Prepare the pending image data for upload to the GPU.
     /// This doesn't need GPU access so is safe to call any time.
-    pub fn prepForUpload(self: *Image, alloc: Allocator) !void {
+    pub fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
         assert(self.isPending());
-
         try self.convert(alloc);
     }
 

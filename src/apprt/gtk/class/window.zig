@@ -361,10 +361,14 @@ pub const Window = extern struct {
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_);
+        _ = self.newTabPage(parent_, .tab);
     }
 
-    fn newTabPage(self: *Self, parent_: ?*CoreSurface) *adw.TabPage {
+    pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface) void {
+        _ = self.newTabPage(parent_, .window);
+    }
+
+    fn newTabPage(self: *Self, parent_: ?*CoreSurface, context: apprt.surface.NewSurfaceContext) *adw.TabPage {
         const priv = self.private();
         const tab_view = priv.tab_view;
 
@@ -372,7 +376,9 @@ pub const Window = extern struct {
         const tab = gobject.ext.newInstance(Tab, .{
             .config = priv.config,
         });
-        if (parent_) |p| tab.setParent(p);
+        if (parent_) |p| {
+            tab.setParentWithContext(p, context);
+        }
 
         // Get the position that we should insert the new tab at.
         const config = if (priv.config) |v| v.get() else {
@@ -793,7 +799,7 @@ pub const Window = extern struct {
 
     /// Get the currently active surface. See the "active-surface" property.
     /// This does not ref the value.
-    fn getActiveSurface(self: *Self) ?*Surface {
+    pub fn getActiveSurface(self: *Self) ?*Surface {
         const tab = self.getSelectedTab() orelse return null;
         return tab.getActiveSurface();
     }
@@ -802,6 +808,11 @@ pub const Window = extern struct {
     /// is not increased.
     pub fn getConfig(self: *Self) ?*Config {
         return self.private().config;
+    }
+
+    /// Get the tab view for this window.
+    pub fn getTabView(self: *Self) *adw.TabView {
+        return self.private().tab_view;
     }
 
     /// Get the current window decoration value for this window.
@@ -1231,7 +1242,7 @@ pub const Window = extern struct {
         _: *adw.TabOverview,
         self: *Self,
     ) callconv(.c) *adw.TabPage {
-        return self.newTabPage(if (self.getActiveSurface()) |v| v.core() else null);
+        return self.newTabPage(if (self.getActiveSurface()) |v| v.core() else null, .tab);
     }
 
     fn tabOverviewOpen(

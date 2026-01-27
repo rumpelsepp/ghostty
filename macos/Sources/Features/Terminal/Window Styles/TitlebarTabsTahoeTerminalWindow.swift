@@ -67,6 +67,38 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         
         viewModel.isMainWindow = false
     }
+
+    /// On our Tahoe titlebar tabs, we need to fix up right click events because they don't work
+    /// naturally due to whatever mess we made.
+    override func sendEvent(_ event: NSEvent) {
+        guard viewModel.hasTabBar else {
+            super.sendEvent(event)
+            return
+        }
+
+        let isRightClick =
+            event.type == .rightMouseDown ||
+            (event.type == .otherMouseDown && event.buttonNumber == 2) ||
+            (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        guard isRightClick else {
+            super.sendEvent(event)
+            return
+        }
+        
+        guard let tabBarView else {
+            super.sendEvent(event)
+            return
+        }
+        
+        let locationInTabBar = tabBarView.convert(event.locationInWindow, from: nil)
+        guard tabBarView.bounds.contains(locationInTabBar) else {
+            super.sendEvent(event)
+            return
+        }
+        
+        tabBarView.rightMouseDown(with: event)
+    }
+
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
     // this, detect the tab bar being added, and override its behavior.
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
@@ -144,8 +176,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard tabBarObserver == nil else { return }
 
         guard
-            let titlebarView = findTitlebarView(),
-            let tabBar = findTabBar()
+            let titlebarView,
+            let tabBarView = self.tabBarView
         else { return }
 
         // View model updates must happen on their own ticks.
@@ -154,13 +186,13 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         }
 
         // Find our clip view
-        guard let clipView = tabBar.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
+        guard let clipView = tabBarView.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
         
         // Make sure tabBar's height won't be stretched
         guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
-        tabBar.frame.size.height = newTabButton.frame.width
+        tabBarView.frame.size.height = newTabButton.frame.width
 
         // The container is the view that we'll constrain our tab bar within.
         let container = toolbarView
@@ -196,10 +228,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // other events occur, the tab bar can resize and clear our constraints. When this
         // happens, we need to remove our custom constraints and re-apply them once the
         // tab bar has proper dimensions again to avoid constraint conflicts.
-        tabBar.postsFrameChangedNotifications = true
+        tabBarView.postsFrameChangedNotifications = true
         tabBarObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification,
-            object: tabBar,
+            object: tabBarView,
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
@@ -290,7 +322,8 @@ extension TitlebarTabsTahoeTerminalWindow {
             } else {
                 // 1x1.gif strikes again! For real: if we render a zero-sized
                 // view here then the toolbar just disappears our view. I don't
-                // know. This appears fixed in 26.1 Beta but keep it safe for 26.0.
+                // know. On macOS 26.1+ the view no longer disappears, but the
+                // toolbar still logs an ambiguous content size warning.
                 Color.clear.frame(width: 1, height: 1)
             }
         }
