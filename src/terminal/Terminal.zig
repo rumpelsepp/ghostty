@@ -329,7 +329,8 @@ pub fn print(self: *Terminal, c: u21) !void {
         @branchHint(.unlikely);
         // We need the previous cell to determine if we're at a grapheme
         // break or not. If we are NOT, then we are still combining the
-        // same grapheme. Otherwise, we can stay in this cell.
+        // same grapheme, and will be appending to prev.cell. Otherwise, we are
+        // in a new cell.
         const Prev = struct { cell: *Cell, left: size.CellCountInt };
         var prev: Prev = prev: {
             const left: size.CellCountInt = left: {
@@ -459,6 +460,8 @@ pub fn print(self: *Terminal, c: u21) !void {
                                 old_pin.node.data.updateRowGraphemeFlag(old_rac.row);
                             }
 
+                            // Point prev.cell to our new previous cell that
+                            // we'll be appending graphemes to
                             prev.cell = new_rac.cell;
                         } else {
                             self.printCell(
@@ -467,13 +470,16 @@ pub fn print(self: *Terminal, c: u21) !void {
                             );
                             try self.printWrap();
                             self.printCell(prev_cp, .wide);
+
+                            // Point prev.cell to our new previous cell that
+                            // we'll be appending graphemes to
                             prev.cell = self.screens.active.cursor.page_cell;
                         }
                     } else {
                         prev.cell.wide = .wide;
                     }
 
-                    // Write our spacer
+                    // Write our spacer, since prev.cell is now wide
                     self.screens.active.cursorRight(1);
                     self.printCell(0, .spacer_tail);
 
