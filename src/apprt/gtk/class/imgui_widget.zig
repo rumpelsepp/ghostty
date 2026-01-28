@@ -131,21 +131,17 @@ pub const ImguiWidget = extern struct {
 
     /// Initialize the frame. Expects that the context is already current.
     fn newFrame(self: *Self) void {
-        // If we can't determine the time since the last frame we default to
-        // 1/60th of a second.
-        const default_delta_time = 1 / 60;
-
         const priv = self.private();
-
         const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
 
         // Determine our delta time
         const now = std.time.Instant.now() catch unreachable;
         io.DeltaTime = if (priv.instant) |prev| delta: {
-            const since_ns = now.since(prev);
-            const since_s: f32 = @floatFromInt(since_ns / std.time.ns_per_s);
+            const since_ns: f64 = @floatFromInt(now.since(prev));
+            const ns_per_s: f64 = @floatFromInt(std.time.ns_per_s);
+            const since_s: f32 = @floatCast(since_ns / ns_per_s);
             break :delta @max(0.00001, since_s);
-        } else default_delta_time;
+        } else (1.0 / 60.0);
 
         priv.instant = now;
     }

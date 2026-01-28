@@ -583,10 +583,12 @@ fn renderModesWindow(self: *Inspector) void {
         const tag: terminal.modes.ModeTag = @bitCast(@as(terminal.modes.ModeTag.Backing, field.value));
 
         cimgui.c.ImGui_TableNextRow();
+        cimgui.c.ImGui_PushIDInt(@intCast(field.value));
+        defer cimgui.c.ImGui_PopID();
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(0);
             var value: bool = t.modes.get(@field(terminal.Mode, field.name));
-            _ = cimgui.c.ImGui_Checkbox("", &value);
+            _ = cimgui.c.ImGui_Checkbox("##checkbox", &value);
         }
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(1);
