@@ -63,6 +63,12 @@ pub const ImguiWidget = extern struct {
         /// Our previous instant used to calculate delta time for animations.
         instant: ?std.time.Instant = null,
 
+        /// Tick callback ID for timed updates.
+        tick_callback_id: c_uint = 0,
+
+        /// Last render time for throttling to 30 FPS.
+        last_render_time: ?std.time.Instant = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -231,11 +237,26 @@ pub const ImguiWidget = extern struct {
 
         // Call the virtual method to setup the UI.
         self.setup();
+
+        // Add a tick callback to drive timed updates via the frame clock.
+        priv.tick_callback_id = self.as(gtk.Widget).addTickCallback(
+            tickCallback,
+            null,
+            null,
+        );
     }
 
     /// Handle a request to unrealize the GLArea
     fn glAreaUnrealize(_: *gtk.GLArea, self: *ImguiWidget) callconv(.c) void {
-        assert(self.private().ig_context != null);
+        const priv = self.private();
+        assert(priv.ig_context != null);
+
+        // Remove the tick callback if it was registered.
+        if (priv.tick_callback_id != 0) {
+            self.as(gtk.Widget).removeTickCallback(priv.tick_callback_id);
+            priv.tick_callback_id = 0;
+        }
+
         self.setCurrentContext() catch return;
         cimgui.ImGui_ImplOpenGL3_Shutdown();
     }
@@ -264,6 +285,10 @@ pub const ImguiWidget = extern struct {
     /// Handle a request to render the contents of our GLArea
     fn glAreaRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *Self) callconv(.c) c_int {
         self.setCurrentContext() catch return @intFromBool(false);
+
+        // Update last render time for tick callback throttling.
+        const priv = self.private();
+        priv.last_render_time = std.time.Instant.now() catch null;
 
         // Setup our frame. We render twice because some ImGui behaviors
         // take multiple renders to process. I don't know how to make this
@@ -409,6 +434,34 @@ pub const ImguiWidget = extern struct {
         self.setCurrentContext() catch return;
         const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         cimgui.c.ImGuiIO_AddInputCharactersUTF8(io, bytes);
+    }
+
+    /// Tick callback for timed updates. This drives periodic redraws.
+    /// Redraws are limited to 30 FPS max since our imgui widgets don't
+    /// usually need higher frame rates than that.
+    fn tickCallback(
+        widget: *gtk.Widget,
+        _: *gdk.FrameClock,
+        _: ?*anyopaque,
+    ) callconv(.c) c_int {
+        const self: *Self = gobject.ext.cast(Self, widget) orelse return 0;
+        const priv = self.private();
+
+        const now = std.time.Instant.now() catch {
+            self.queueRender();
+            return 1;
+        };
+
+        // Throttle to 30 FPS (~33ms between frames)
+        const frame_time_ns: u64 = std.time.ns_per_s / 30;
+        const should_render = if (priv.last_render_time) |last|
+            now.since(last) >= frame_time_ns
+        else
+            true;
+
+        if (should_render) self.queueRender();
+
+        return 1; // Continue the tick callback
     }
 
     //---------------------------------------------------------------

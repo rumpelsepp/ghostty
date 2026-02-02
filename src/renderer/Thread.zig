@@ -294,9 +294,6 @@ fn setQosClass(self: *const Thread) void {
 
 fn syncDrawTimer(self: *Thread) void {
     skip: {
-        // If we have an inspector, we always run the draw timer.
-        if (self.flags.has_inspector) break :skip;
-
         // If our renderer supports animations and has them, then we
         // always have a draw timer.
         if (@hasDecl(rendererpkg.Renderer, "hasAnimations") and
@@ -479,9 +476,6 @@ fn drainMailbox(self: *Thread) !void {
 
             .inspector => |v| {
                 self.flags.has_inspector = v;
-                // Reset our draw timer state, which might change due
-                // to the inspector change.
-                self.syncDrawTimer();
             },
 
             .macos_display_id => |v| {
@@ -613,11 +607,6 @@ fn renderCallback(
         log.warn("render callback fired without data set", .{});
         return .disarm;
     };
-
-    // If we have an inspector, let the app know we want to rerender that.
-    if (t.flags.has_inspector) {
-        _ = t.app_mailbox.push(.{ .redraw_inspector = t.surface }, .{ .instant = {} });
-    }
 
     // Update our frame data
     t.renderer.updateFrame(
