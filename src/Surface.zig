@@ -3969,6 +3969,15 @@ pub fn mouseButtonCallback(
                 log.warn("error processing links err={}", .{err});
             }
         }
+
+        // Handle prompt clicking. If we released our mouse on a prompt
+        // and we support some kind of click events, then we need to
+        // move to it.
+        if (self.maybePromptClick()) |handled| {
+            if (handled) return true;
+        } else |err| {
+            log.warn("error processing prompt click err={}", .{err});
+        }
     }
 
     // Report mouse events if enabled
@@ -4008,25 +4017,6 @@ pub fn mouseButtonCallback(
             // selection or highlighting.
             return true;
         }
-    }
-
-    // For left button click release we check if we are moving our cursor.
-    if (button == .left and
-        action == .release and
-        mods.alt)
-    click_move: {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-
-        // If we have a selection then we do not do click to move because
-        // it means that we moved our cursor while pressing the mouse button.
-        if (self.io.terminal.screens.active.selection != null) break :click_move;
-
-        // Moving always resets the click count so that we don't highlight.
-        self.mouse.left_click_count = 0;
-        const pin = self.mouse.left_click_pin orelse break :click_move;
-        try self.clickMoveCursor(pin.*);
-        return true;
     }
 
     // For left button clicks we always record some information for
@@ -4188,10 +4178,6 @@ pub fn mouseButtonCallback(
                     .y = pt_viewport.y,
                 },
             }) orelse {
-                // Weird... our viewport x/y that we just converted isn't
-                // found in our pages. This is probably a bug but we don't
-                // want to crash in releases because its harmless. So, we
-                // only assert in debug mode.
                 if (comptime std.debug.runtime_safety) unreachable;
                 break :sel;
             };
@@ -4278,58 +4264,118 @@ pub fn mouseButtonCallback(
     return false;
 }
 
-/// Performs the "click-to-move" logic to move the cursor to the given
-/// screen point if possible. This works by converting the path to the
-/// given point into a series of arrow key inputs.
-fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
-    // If click-to-move is disabled then we're done.
-    if (!self.config.cursor_click_to_move) return;
+fn maybePromptClick(self: *Surface) !bool {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    const screen: *terminal.Screen = t.screens.active;
 
-    const t = &self.io.terminal;
+    // If our screen doesn't handle any prompt clicks, then we never
+    // do anything.
+    if (screen.semantic_prompt.click == .none) return false;
 
-    // Click to move cursor only works on the primary screen where prompts
-    // exist. This means that alt screen multiplexers like tmux will not
-    // support this feature. It is just too messy.
-    if (t.screens.active_key != .primary) return;
+    // If our cursor isn't currently at a prompt then we don't handle
+    // prompt clicks because we can't move if we're not in a prompt!
+    if (!t.cursorIsAtPrompt()) return false;
 
-    // This flag is only set if we've seen at least one semantic prompt
-    // OSC sequence. If we've never seen that sequence, we can't possibly
-    // move the cursor so we can fast path out of here.
-    if (!t.screens.active.flags.semantic_content) return;
+    // If we have a selection currently, then releasing the mouse
+    // completes the selection and we don't do prompt moving. I don't
+    // love this logic, I think it should be generalized to "if the
+    // mouse release was on a different cell than the mouse press" but
+    // our mouse state at the time of writing this doesn't support that.
+    if (screen.selection != null) return false;
 
-    // Get our path
-    const from = t.screens.active.cursor.page_pin.*;
-    const path = t.screens.active.promptPath(from, to);
-    log.debug("click-to-move-cursor from={} to={} path={}", .{ from, to, path });
-
-    // If we aren't moving at all, fast path out of here.
-    if (path.x == 0 and path.y == 0) return;
-
-    // Convert our path to arrow key inputs. Yes, that is how this works.
-    // Yes, that is pretty sad. Yes, this could backfire in various ways.
-    // But its the best we can do.
-
-    // We do Y first because it prevents any weird wrap behavior.
-    if (path.y != 0) {
-        const arrow = if (path.y < 0) arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOA" else "\x1b[A";
-        } else arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOB" else "\x1b[B";
+    // Get the pin for our mouse click.
+    const pos = try self.rt_surface.getCursorPos();
+    const pos_vp = self.posToViewport(pos.x, pos.y);
+    const click_pin: terminal.Pin = pin: {
+        const pin = screen.pages.pin(.{
+            .viewport = .{
+                .x = pos_vp.x,
+                .y = pos_vp.y,
+            },
+        }) orelse {
+            // See mouseButtonCallback for explanation
+            if (comptime std.debug.runtime_safety) unreachable;
+            return false;
         };
-        for (0..@abs(path.y)) |_| {
-            self.queueIo(.{ .write_stable = arrow }, .locked);
-        }
-    }
-    if (path.x != 0) {
-        const arrow = if (path.x < 0) arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
-        } else arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
+
+        break :pin pin;
+    };
+
+    // Get our cursor's most current prompt.
+    const prompt_pin: terminal.Pin = prompt_pin: {
+        var it = screen.cursor.page_pin.promptIterator(
+            .left_up,
+            null,
+        );
+        break :prompt_pin it.next() orelse {
+            // This shouldn't be possible because we asserted we're at
+            // a prompt above, so we MUST find some prompt in a left_up search.
+            log.warn("cursor is at prompt but no prompt found", .{});
+            if (comptime std.debug.runtime_safety) unreachable;
+            return false;
         };
-        for (0..@abs(path.x)) |_| {
-            self.queueIo(.{ .write_stable = arrow }, .locked);
-        }
+    };
+
+    // If our mouse click is before the prompt, we don't move.
+    // We DO ALLOW clicks AFTER the prompt, specifically with Kitty's
+    // click_events=1 since we rely on the shell to validate out of
+    // bounds clicks. This matches Kitty's logic as best I can tell.
+    if (click_pin.before(prompt_pin)) return false;
+
+    // At this point we've established:
+    // - Screen supports prompt clicks
+    // - Cursor is at a prompt
+    // - Click is at or below our prompt
+    switch (screen.semantic_prompt.click) {
+        // Guarded at the start of this function
+        .none => unreachable,
+
+        .click_events => {
+            // For the event, we always send a left-click press event.
+            // This matches what Kitty sends.
+            var data: termio.Message.WriteReq.Small.Array = undefined;
+            const resp = try std.fmt.bufPrint(
+                &data,
+                "\x1B[<0;{d};{d}M",
+                .{ pos_vp.x + 1, pos_vp.y + 1 },
+            );
+
+            // Not that noisy since this only happens on prompt clicks.
+            log.debug(
+                "sending click_events=1 event=ESC{s}",
+                .{resp[1..]},
+            );
+
+            // Ask our IO thread to write the data
+            self.queueIo(.{ .write_small = .{
+                .data = data,
+                .len = @intCast(resp.len),
+            } }, .locked);
+        },
+
+        .cl => {
+            const left_arrow = if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
+            const right_arrow = if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
+
+            const move = screen.promptClickMove(click_pin);
+            for (0..move.left) |_| {
+                self.queueIo(
+                    .{ .write_stable = left_arrow },
+                    .locked,
+                );
+            }
+            for (0..move.right) |_| {
+                self.queueIo(
+                    .{ .write_stable = right_arrow },
+                    .locked,
+                );
+            }
+        },
     }
+
+    return true;
 }
 
 const Link = struct {

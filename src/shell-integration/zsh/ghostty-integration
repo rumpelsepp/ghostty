@@ -121,7 +121,7 @@ _ghostty_deferred_init() {
             fi
         fi
 
-        builtin local mark1=$'%{\e]133;A\a%}'
+        builtin local mark1=$'%{\e]133;A;cl=line\a%}'
         if [[ -o prompt_percent ]]; then
             builtin typeset -g precmd_functions
             if [[ ${precmd_functions[-1]} == _ghostty_precmd ]]; then

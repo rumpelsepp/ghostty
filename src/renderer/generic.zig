@@ -2206,10 +2206,35 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // If we had a previous overlay, clear it. Otherwise, init.
-            const overlay: *Overlay = if (self.overlay) |*v| overlay: {
-                v.reset();
-                break :overlay v;
-            } else overlay: {
+            const overlay: *Overlay = overlay: {
+                if (self.overlay) |*v| existing: {
+                    // Verify that our overlay size matches our screen
+                    // size as we know it now. If not, deinit and reinit.
+                    // Note: these intCasts are always safe because z2d
+                    // stores as i32 but we always init with a u32.
+                    const width: u32 = @intCast(v.surface.getWidth());
+                    const height: u32 = @intCast(v.surface.getHeight());
+                    const term_size = self.size.terminal();
+                    if (width != term_size.width or
+                        height != term_size.height) break :existing;
+
+                    // We also depend on cell size.
+                    if (v.cell_size.width != self.size.cell.width or
+                        v.cell_size.height != self.size.cell.height) break :existing;
+
+                    // Everything matches, so we can just reset the surface
+                    // and redraw.
+                    v.reset();
+                    break :overlay v;
+                }
+
+                // If we reached this point we want to reset our overlay.
+                if (self.overlay) |*v| {
+                    v.deinit(alloc);
+                    self.overlay = null;
+                }
+
+                assert(self.overlay == null);
                 const new: Overlay = try .init(alloc, self.size);
                 self.overlay = new;
                 break :overlay &self.overlay.?;
