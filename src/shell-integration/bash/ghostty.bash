@@ -198,7 +198,7 @@ function __ghostty_precmd() {
     # Marks. We need to do fresh line (A) at the beginning of the prompt
     # since if the cursor is not at the beginning of a line, the terminal
     # will emit a newline.
-    PS1='\[\e]133;A;redraw=last;cl=line\a\]'$PS1'\[\e]133;B\a\]'
+    PS1='\[\e]133;A;redraw=last;cl=line;aid='"$BASHPID"'\a\]'$PS1'\[\e]133;B\a\]'
     PS2='\[\e]133;A;k=s\a\]'$PS2'\[\e]133;B\a\]'
 
     # Bash doesn't redraw the leading lines in a multiline prompt so
@@ -213,7 +213,10 @@ function __ghostty_precmd() {
 
     # Cursor
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
-      [[ "$PS1" != *'\[\e[5 q\]'* ]] && PS1=$PS1'\[\e[5 q\]' # input
+      builtin local cursor=5  # blinking bar
+      [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:steady"* ]] && cursor=6  # steady bar
+
+      [[ "$PS1" != *"\[\e[${cursor} q\]"* ]] && PS1=$PS1"\[\e[${cursor} q\]"
       [[ "$PS0" != *'\[\e[0 q\]'* ]] && PS0=$PS0'\[\e[0 q\]' # reset
     fi
 
@@ -236,8 +239,6 @@ function __ghostty_precmd() {
     builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
   fi
 
-  # Fresh line and start of prompt.
-  builtin printf "\e]133;A;redraw=last;cl=line;aid=%s\a" "$BASHPID"
   _ghostty_executing=0
 }
 
@@ -278,7 +279,9 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
   __ghostty_hook() {
     builtin local ret=$?
     __ghostty_precmd "$ret"
-    PS0=$__ghostty_ps0
+    if [[ "$PS0" != *"$__ghostty_ps0"* ]]; then
+      PS0=$PS0"${__ghostty_ps0}"
+    fi
   }
 
   # Append our hook to PROMPT_COMMAND, preserving its existing type.
