@@ -25,9 +25,9 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
 
         var map: std.AutoHashMapUnmanaged(Key, ?struct {
             libc: std.Build.LazyPath,
-            cpp_include: []const u8,
-            lib: []const u8,
-        }) = .{};
+            cpp_include: std.Build.LazyPath,
+            lib: std.Build.LazyPath,
+        }) = .empty;
     };
 
     const target = step.rootModuleTarget();
@@ -38,16 +38,7 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
     });
 
     if (!gop.found_existing) {
-        const ndk_path = findNDKPath(b.allocator) orelse {
-            gop.value_ptr.* = null;
-            return error.AndroidNDKNotFound;
-        };
-
-        var ndk_dir = std.fs.openDirAbsolute(ndk_path, .{}) catch {
-            gop.value_ptr.* = null;
-            return error.AndroidNDKNotFound;
-        };
-        defer ndk_dir.close();
+        const ndk_path = findNDKPath(b) orelse return error.AndroidNDKNotFound;
 
         const ndk_triple = ndkTriple(target) orelse {
             gop.value_ptr.* = null;
@@ -59,27 +50,47 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
             return error.AndroidNDKUnsupportedHost;
         };
 
-        const sysroot = try std.fs.path.join(b.allocator, &.{
-            ndk_path, "toolchains", "llvm", "prebuilt", host, "sysroot",
+        const sysroot = b.pathJoin(&.{
+            ndk_path,
+            "toolchains",
+            "llvm",
+            "prebuilt",
+            host,
+            "sysroot",
         });
-        const include_dir = try std.fs.path.join(
-            b.allocator,
-            &.{ sysroot, "usr", "include" },
-        );
-        const sys_include_dir = try std.fs.path.join(
-            b.allocator,
-            &.{ sysroot, "usr", "include", ndk_triple },
-        );
+        const include_dir = b.pathJoin(&.{
+            sysroot,
+            "usr",
+            "include",
+        });
+        const sys_include_dir = b.pathJoin(&.{
+            sysroot,
+            "usr",
+            "include",
+            ndk_triple,
+        });
+        const c_runtime_dir = b.pathJoin(&.{
+            sysroot,
+            "usr",
+            "lib",
+            ndk_triple,
+            b.fmt("{d}", .{target.os.version_range.linux.android}),
+        });
+        const lib = b.pathJoin(&.{
+            sysroot,
+            "usr",
+            "lib",
+            ndk_triple,
+        });
+        const cpp_include = b.pathJoin(&.{
+            sysroot,
+            "usr",
+            "include",
+            "c++",
+            "v1",
+        });
 
-        var api_buf: [10]u8 = undefined;
-        const api_level = target.os.version_range.linux.android;
-        const api_level_str = std.fmt.bufPrint(&api_buf, "{d}", .{api_level}) catch unreachable;
-        const c_runtime_dir = try std.fs.path.join(
-            b.allocator,
-            &.{ sysroot, "usr", "lib", ndk_triple, api_level_str },
-        );
-
-        const libc_txt = try std.fmt.allocPrint(b.allocator,
+        const libc_txt = b.fmt(
             \\include_dir={s}
             \\sys_include_dir={s}
             \\crt_dir={s}
@@ -90,79 +101,86 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
 
         const wf = b.addWriteFiles();
         const libc_path = wf.add("libc.txt", libc_txt);
-        const lib = try std.fs.path.join(b.allocator, &.{ sysroot, "usr", "lib", ndk_triple });
-        const cpp_include = try std.fs.path.join(b.allocator, &.{ sysroot, "usr", "include", "c++", "v1" });
 
         gop.value_ptr.* = .{
-            .lib = lib,
             .libc = libc_path,
-            .cpp_include = cpp_include,
+            .cpp_include = .{ .cwd_relative = cpp_include },
+            .lib = .{ .cwd_relative = lib },
         };
     }
 
     const value = gop.value_ptr.* orelse return error.AndroidNDKNotFound;
 
     step.setLibCFile(value.libc);
-    step.root_module.addSystemIncludePath(.{ .cwd_relative = value.cpp_include });
-    step.root_module.addLibraryPath(.{ .cwd_relative = value.lib });
+    step.root_module.addSystemIncludePath(value.cpp_include);
+    step.root_module.addLibraryPath(value.lib);
 }
 
-fn findNDKPath(allocator: std.mem.Allocator) ?[]const u8 {
+fn findNDKPath(b: *std.Build) ?[]const u8 {
     // Check if user has set the environment variable for the NDK path.
-    if (std.process.getEnvVarOwned(allocator, "ANDROID_NDK_HOME") catch null) |value| {
-        if (value.len > 0) return value;
+    if (std.process.getEnvVarOwned(b.allocator, "ANDROID_NDK_HOME") catch null) |value| {
+        if (value.len == 0) return null;
+        var dir = std.fs.openDirAbsolute(value, .{}) catch return null;
+        defer dir.close();
+        return value;
     }
 
     // Check the common environment variables for the Android SDK path and look for the NDK inside it.
     inline for (.{ "ANDROID_HOME", "ANDROID_SDK_ROOT" }) |env| {
-        if (std.process.getEnvVarOwned(allocator, env) catch null) |sdk| {
+        if (std.process.getEnvVarOwned(b.allocator, env) catch null) |sdk| {
             if (sdk.len > 0) {
-                if (findLatestNDK(allocator, sdk)) |ndk| return ndk;
+                if (findLatestNDK(b, sdk)) |ndk| return ndk;
             }
         }
     }
 
     // As a fallback, we assume the most common/default SDK path based on the OS.
     const home = std.process.getEnvVarOwned(
-        allocator,
+        b.allocator,
         if (builtin.os.tag == .windows) "LOCALAPPDATA" else "HOME",
     ) catch return null;
 
-    const default_sdk_path = std.fs.path.join(allocator, &.{
-        home, switch (builtin.os.tag) {
-            .linux => "Android/sdk",
-            .macos => "Library/Android/Sdk",
-            .windows => "Android/Sdk",
-            else => return null,
+    const default_sdk_path = b.pathJoin(
+        &.{
+            home,
+            switch (builtin.os.tag) {
+                .linux => "Android/sdk",
+                .macos => "Library/Android/Sdk",
+                .windows => "Android/Sdk",
+                else => return null,
+            },
         },
-    }) catch return null;
-    return findLatestNDK(allocator, default_sdk_path);
+    );
+
+    return findLatestNDK(b, default_sdk_path);
 }
 
-fn findLatestNDK(allocator: std.mem.Allocator, sdk_path: []const u8) ?[]const u8 {
-    const ndk_dir = std.fs.path.join(allocator, &.{ sdk_path, "ndk" }) catch return null;
+fn findLatestNDK(b: *std.Build, sdk_path: []const u8) ?[]const u8 {
+    const ndk_dir = b.pathJoin(&.{ sdk_path, "ndk" });
     var dir = std.fs.openDirAbsolute(ndk_dir, .{ .iterate = true }) catch return null;
     defer dir.close();
 
-    var latest_version: ?[]const u8 = null;
-    var latest_parsed: ?std.SemanticVersion = null;
+    var latest_: ?struct {
+        name: []const u8,
+        version: std.SemanticVersion,
+    } = null;
     var iterator = dir.iterate();
 
     while (iterator.next() catch null) |file| {
         if (file.kind != .directory) continue;
-        const parsed = std.SemanticVersion.parse(file.name) catch continue;
-        if (latest_version == null or parsed.order(latest_parsed.?) == .gt) {
-            if (latest_version) |old| allocator.free(old);
-            latest_version = allocator.dupe(u8, file.name) catch return null;
-            latest_parsed = parsed;
+        const version = std.SemanticVersion.parse(file.name) catch continue;
+        if (latest_) |latest| {
+            if (version.order(latest.version) != .gt) continue;
         }
+        latest_ = .{
+            .name = file.name,
+            .version = version,
+        };
     }
 
-    if (latest_version) |version| {
-        return std.fs.path.join(allocator, &.{ sdk_path, "ndk", version }) catch return null;
-    }
+    const latest = latest_ orelse return null;
 
-    return null;
+    return b.pathJoin(&.{ sdk_path, "ndk", latest.name });
 }
 
 fn hostTag() ?[]const u8 {
