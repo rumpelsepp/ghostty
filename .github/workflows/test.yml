@@ -373,7 +373,6 @@ jobs:
           path: |
             /nix
             /zig
-            ~/Android/ndk
 
       # Install Nix and use that to run our tests so our environment matches exactly.
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -385,22 +384,20 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Setup Android NDK
-        run: |
-          NDK_ROOT="$HOME/Android/ndk"
-          NDK_DIR="$NDK_ROOT/android-ndk-${{ env.ANDROID_NDK_VERSION }}"
-          if [ ! -d "$NDK_DIR" ]; then
-            curl -fsSL -o /tmp/ndk.zip \
-              "https://dl.google.com/android/repository/android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip"
-            mkdir -p $NDK_ROOT
-            unzip -q /tmp/ndk.zip -d $NDK_ROOT
-            rm /tmp/ndk.zip
-          fi
-          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+        id: setup-ndk
+        with:
+          ndk-version: r29
+          add-to-path: false
+          link-to-sdk: false
+          local-cache: true
 
       - name: Build
         run: |
           nix develop -c zig build lib-vt \
             -Dtarget=${{ matrix.target }}
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
   build-linux:
     strategy:
