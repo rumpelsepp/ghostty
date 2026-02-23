@@ -174,6 +174,14 @@ class TerminalWindow: NSWindow {
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
 
+    override func sendEvent(_ event: NSEvent) {
+        if promptTabTitleForDoubleClick(event) {
+            return
+        }
+
+        super.sendEvent(event)
+    }
+
     override func close() {
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
@@ -205,6 +213,19 @@ class TerminalWindow: NSWindow {
     override func resignMain() {
         super.resignMain()
         viewModel.isMainWindow = false
+    }
+
+    private func promptTabTitleForDoubleClick(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown, event.clickCount == 2 else { return false }
+
+        let locationInScreen = convertPoint(toScreen: event.locationInWindow)
+        guard let tabIndex = tabIndex(atScreenPoint: locationInScreen) else { return false }
+
+        guard let targetWindow = tabbedWindows?[safe: tabIndex] else { return false }
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return false }
+
+        targetController.promptTabTitle()
+        return true
     }
 
     override func mergeAllWindows(_ sender: Any?) {
