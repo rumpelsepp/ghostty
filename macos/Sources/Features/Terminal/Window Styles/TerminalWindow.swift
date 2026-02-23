@@ -42,6 +42,7 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
     private weak var inlineTabTitleEditorController: BaseTerminalController?
     private var inlineTabTitleHiddenLabels: [(label: NSTextField, wasHidden: Bool)] = []
     private var inlineTabTitleButtonState: (button: NSButton, title: String, attributedTitle: NSAttributedString?)?
+    private var pendingInlineTabTitleEditWorkItem: DispatchWorkItem?
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -226,16 +227,22 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         guard event.type == .leftMouseDown, event.clickCount == 2 else { return false }
 
         let locationInScreen = convertPoint(toScreen: event.locationInWindow)
-        if beginInlineTabTitleEdit(atScreenPoint: locationInScreen) {
-            return true
+        guard let tabIndex = tabIndex(atScreenPoint: locationInScreen),
+              let targetWindow = tabbedWindows?[safe: tabIndex],
+              let targetController = targetWindow.windowController as? BaseTerminalController
+        else { return false }
+
+        pendingInlineTabTitleEditWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self, weak targetWindow, weak targetController] in
+            guard let self else { return }
+            if let targetWindow, self.beginInlineTabTitleEdit(for: targetWindow) {
+                return
+            }
+
+            targetController?.promptTabTitle()
         }
-
-        guard let tabIndex = tabIndex(atScreenPoint: locationInScreen) else { return false }
-
-        guard let targetWindow = tabbedWindows?[safe: tabIndex] else { return false }
-        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return false }
-
-        targetController.promptTabTitle()
+        pendingInlineTabTitleEditWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
         return true
     }
 
@@ -272,6 +279,8 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         targetWindow: NSWindow,
         targetController: BaseTerminalController
     ) -> Bool {
+        pendingInlineTabTitleEditWorkItem?.cancel()
+        pendingInlineTabTitleEditWorkItem = nil
         finishInlineTabTitleEdit(commit: true)
 
         let titleLabels = tabButton
@@ -299,10 +308,12 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         if let sourceLabel {
             applyTextStyle(to: editor, from: sourceLabel, title: editedTitle)
         }
+        editor.isHidden = true
 
-        tabButton.addSubview(editor)
         inlineTabTitleEditor = editor
         inlineTabTitleEditorController = targetController
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         inlineTabTitleHiddenLabels = titleLabels.map { ($0, $0.isHidden) }
         for label in titleLabels {
             label.isHidden = true
@@ -314,9 +325,14 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         } else {
             inlineTabTitleButtonState = nil
         }
+        tabButton.layoutSubtreeIfNeeded()
+        tabButton.displayIfNeeded()
+        tabButton.addSubview(editor)
+        CATransaction.commit()
 
         DispatchQueue.main.async { [weak self, weak editor] in
             guard let self, let editor else { return }
+            editor.isHidden = false
             self.makeFirstResponder(editor)
             if let fieldEditor = editor.currentEditor() as? NSTextView,
                let editorFont = editor.font {
@@ -412,6 +428,9 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
     }
 
     private func finishInlineTabTitleEdit(commit: Bool) {
+        pendingInlineTabTitleEditWorkItem?.cancel()
+        pendingInlineTabTitleEditWorkItem = nil
+
         guard let editor = inlineTabTitleEditor else { return }
         let editedTitle = editor.stringValue
         let targetController = inlineTabTitleEditorController
