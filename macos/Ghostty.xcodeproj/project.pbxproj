@@ -97,11 +97,11 @@
 		8193245D2F24E80800A9ED8F /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"Features/Colorized Ghostty Icon/ColorizedGhosttyIcon.swift",
-				"Features/Dock Tile Plugin/AppIcon.swift",
-				"Features/Dock Tile Plugin/DockTilePlugin.swift",
-				"Features/Dock Tile Plugin/Notification+AppIcon.swift",
-				"Features/Dock Tile Plugin/UserDefaults+AppIcon.swift",
+				"Features/Custom App Icon/AppIcon.swift",
+				"Features/Custom App Icon/ColorizedGhosttyIcon.swift",
+				"Features/Custom App Icon/DockTilePlugin.swift",
+				"Features/Custom App Icon/Extensions/Notification+AppIcon.swift",
+				"Features/Custom App Icon/Extensions/UserDefaults+AppIcon.swift",
 				Ghostty/Ghostty.ConfigTypes.swift,
 				Ghostty/GhosttyPackageMeta.swift,
 				Helpers/CrossKit.swift,
@@ -137,15 +137,15 @@
 				Features/ClipboardConfirmation/ClipboardConfirmation.xib,
 				Features/ClipboardConfirmation/ClipboardConfirmationController.swift,
 				Features/ClipboardConfirmation/ClipboardConfirmationView.swift,
-				"Features/Colorized Ghostty Icon/ColorizedGhosttyIcon.swift",
-				"Features/Colorized Ghostty Icon/ColorizedGhosttyIconImage.swift",
-				"Features/Colorized Ghostty Icon/ColorizedGhosttyIconView.swift",
 				"Features/Command Palette/CommandPalette.swift",
 				"Features/Command Palette/TerminalCommandPalette.swift",
-				"Features/Dock Tile Plugin/AppIcon.swift",
-				"Features/Dock Tile Plugin/DockTilePlugin.swift",
-				"Features/Dock Tile Plugin/Notification+AppIcon.swift",
-				"Features/Dock Tile Plugin/UserDefaults+AppIcon.swift",
+				"Features/Custom App Icon/AppIcon.swift",
+				"Features/Custom App Icon/ColorizedGhosttyIcon.swift",
+				"Features/Custom App Icon/ColorizedGhosttyIconImage.swift",
+				"Features/Custom App Icon/ColorizedGhosttyIconView.swift",
+				"Features/Custom App Icon/DockTilePlugin.swift",
+				"Features/Custom App Icon/Extensions/Notification+AppIcon.swift",
+				"Features/Custom App Icon/Extensions/UserDefaults+AppIcon.swift",
 				"Features/Global Keybinds/GlobalEventTap.swift",
 				Features/QuickTerminal/QuickTerminal.xib,
 				Features/QuickTerminal/QuickTerminalController.swift,
@@ -245,7 +245,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/iOS/iOSApp.swift,
-				"Features/Dock Tile Plugin/DockTilePlugin.swift",
+				"Features/Custom App Icon/DockTilePlugin.swift",
 				"Ghostty/Surface View/SurfaceView_UIKit.swift",
 			);
 			target = A5B30530299BEAAA0047F10C /* Ghostty */;
