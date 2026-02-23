@@ -4,7 +4,7 @@ import GhosttyKit
 
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
 /// style and configuration of the window based on the app configuration.
-class TerminalWindow: NSWindow, NSTextFieldDelegate {
+class TerminalWindow: NSWindow {
     /// Posted when a terminal window awakes from nib.
     static let terminalDidAwake = Notification.Name("TerminalWindowDidAwake")
 
@@ -37,12 +37,11 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
     /// Sets up our tab context menu
     private var tabMenuObserver: NSObjectProtocol?
 
-    /// Active inline editor for renaming a tab title.
-    private weak var inlineTabTitleEditor: NSTextField?
-    private weak var inlineTabTitleEditorController: BaseTerminalController?
-    private var inlineTabTitleHiddenLabels: [(label: NSTextField, wasHidden: Bool)] = []
-    private var inlineTabTitleButtonState: (button: NSButton, title: String, attributedTitle: NSAttributedString?)?
-    private var pendingInlineTabTitleEditWorkItem: DispatchWorkItem?
+    /// Coordinates inline tab title editing for this host window.
+    private lazy var inlineTabTitleEditingCoordinator = InlineTabTitleEditingCoordinator(
+        hostWindow: self,
+        delegate: self
+    )
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -182,7 +181,7 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
     override var canBecomeMain: Bool { return true }
 
     override func sendEvent(_ event: NSEvent) {
-        if promptTabTitleForDoubleClick(event) {
+        if inlineTabTitleEditingCoordinator.handleDoubleClick(event) {
             return
         }
 
@@ -190,7 +189,7 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
     }
 
     override func close() {
-        finishInlineTabTitleEdit(commit: true)
+        inlineTabTitleEditingCoordinator.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
     }
@@ -223,228 +222,9 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         viewModel.isMainWindow = false
     }
 
-    private func promptTabTitleForDoubleClick(_ event: NSEvent) -> Bool {
-        guard event.type == .leftMouseDown, event.clickCount == 2 else { return false }
-
-        let locationInScreen = convertPoint(toScreen: event.locationInWindow)
-        guard let tabIndex = tabIndex(atScreenPoint: locationInScreen),
-              let targetWindow = tabbedWindows?[safe: tabIndex],
-              let targetController = targetWindow.windowController as? BaseTerminalController
-        else { return false }
-
-        pendingInlineTabTitleEditWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self, weak targetWindow, weak targetController] in
-            guard let self else { return }
-            if let targetWindow, self.beginInlineTabTitleEdit(for: targetWindow) {
-                return
-            }
-
-            targetController?.promptTabTitle()
-        }
-        pendingInlineTabTitleEditWorkItem = workItem
-        DispatchQueue.main.async(execute: workItem)
-        return true
-    }
-
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        guard let tabbedWindows,
-              let tabIndex = tabbedWindows.firstIndex(of: targetWindow),
-              let tabButton = tabButtonsInVisualOrder()[safe: tabIndex],
-              let targetController = targetWindow.windowController as? BaseTerminalController
-        else { return false }
-
-        return beginInlineTabTitleEdit(
-            tabButton: tabButton,
-            targetWindow: targetWindow,
-            targetController: targetController
-        )
-    }
-
-    private func beginInlineTabTitleEdit(
-        tabButton: NSView,
-        targetWindow: NSWindow,
-        targetController: BaseTerminalController
-    ) -> Bool {
-        pendingInlineTabTitleEditWorkItem?.cancel()
-        pendingInlineTabTitleEditWorkItem = nil
-        finishInlineTabTitleEdit(commit: true)
-
-        let titleLabels = tabButton
-            .descendants(withClassName: "NSTextField")
-            .compactMap { $0 as? NSTextField }
-        let editedTitle = targetController.titleOverride ?? targetWindow.title
-        let sourceLabel = sourceTabTitleLabel(from: titleLabels, matching: editedTitle)
-        let editorFrame = tabTitleEditorFrame(for: tabButton, sourceLabel: sourceLabel)
-        guard editorFrame.width >= 20, editorFrame.height >= 14 else { return false }
-
-        let editor = NSTextField(frame: editorFrame)
-        editor.delegate = self
-        editor.stringValue = editedTitle
-        editor.alignment = sourceLabel?.alignment ?? .center
-        editor.isBordered = false
-        editor.isBezeled = false
-        editor.drawsBackground = false
-        editor.focusRingType = .none
-        editor.lineBreakMode = .byClipping
-        if let editorCell = editor.cell as? NSTextFieldCell {
-            editorCell.wraps = false
-            editorCell.usesSingleLineMode = true
-            editorCell.isScrollable = true
-        }
-        if let sourceLabel {
-            applyTextStyle(to: editor, from: sourceLabel, title: editedTitle)
-        }
-        editor.isHidden = true
-
-        inlineTabTitleEditor = editor
-        inlineTabTitleEditorController = targetController
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        inlineTabTitleHiddenLabels = titleLabels.map { ($0, $0.isHidden) }
-        for label in titleLabels {
-            label.isHidden = true
-        }
-        if let tabButton = tabButton as? NSButton {
-            inlineTabTitleButtonState = (tabButton, tabButton.title, tabButton.attributedTitle)
-            tabButton.title = ""
-            tabButton.attributedTitle = NSAttributedString(string: "")
-        } else {
-            inlineTabTitleButtonState = nil
-        }
-        tabButton.layoutSubtreeIfNeeded()
-        tabButton.displayIfNeeded()
-        tabButton.addSubview(editor)
-        CATransaction.commit()
-
-        DispatchQueue.main.async { [weak self, weak editor] in
-            guard let self, let editor else { return }
-            editor.isHidden = false
-            self.makeFirstResponder(editor)
-            if let fieldEditor = editor.currentEditor() as? NSTextView,
-               let editorFont = editor.font {
-                fieldEditor.font = editorFont
-                var typingAttributes = fieldEditor.typingAttributes
-                typingAttributes[.font] = editorFont
-                fieldEditor.typingAttributes = typingAttributes
-            }
-            editor.currentEditor()?.selectAll(nil)
-        }
-
-        return true
-    }
-
-    private func tabTitleEditorFrame(for tabButton: NSView, sourceLabel: NSTextField?) -> NSRect {
-        let bounds = tabButton.bounds
-        let horizontalInset: CGFloat = 6
-        var frame = bounds.insetBy(dx: horizontalInset, dy: 0)
-
-        if let sourceLabel {
-            let labelFrame = tabButton.convert(sourceLabel.bounds, from: sourceLabel)
-            frame.origin.y = labelFrame.minY
-            frame.size.height = labelFrame.height
-        }
-
-        return frame.integral
-    }
-
-    private func sourceTabTitleLabel(from labels: [NSTextField], matching title: String) -> NSTextField? {
-        let expected = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !expected.isEmpty {
-            if let exactVisible = labels.first(where: {
-                !$0.isHidden &&
-                $0.alphaValue > 0.01 &&
-                $0.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == expected
-            }) {
-                return exactVisible
-            }
-
-            if let exactAny = labels.first(where: {
-                $0.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == expected
-            }) {
-                return exactAny
-            }
-        }
-
-        let visibleNonEmpty = labels.filter {
-            !$0.isHidden &&
-            $0.alphaValue > 0.01 &&
-            !$0.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-
-        if let centeredVisible = visibleNonEmpty
-            .filter({ $0.alignment == .center })
-            .max(by: { $0.bounds.width < $1.bounds.width }) {
-            return centeredVisible
-        }
-
-        if let visible = visibleNonEmpty.max(by: { $0.bounds.width < $1.bounds.width }) {
-            return visible
-        }
-
-        return labels.max(by: { $0.bounds.width < $1.bounds.width })
-    }
-
-    private func applyTextStyle(to editor: NSTextField, from label: NSTextField, title: String) {
-        var attributes: [NSAttributedString.Key: Any] = [:]
-        if label.attributedStringValue.length > 0 {
-            attributes = label.attributedStringValue.attributes(at: 0, effectiveRange: nil)
-        }
-
-        if attributes[.font] == nil, let font = label.font {
-            attributes[.font] = font
-        }
-
-        if attributes[.foregroundColor] == nil {
-            attributes[.foregroundColor] = label.textColor
-        }
-
-        if let font = attributes[.font] as? NSFont {
-            editor.font = font
-        }
-
-        if let textColor = attributes[.foregroundColor] as? NSColor {
-            editor.textColor = textColor
-        }
-
-        if !attributes.isEmpty {
-            editor.attributedStringValue = NSAttributedString(string: title, attributes: attributes)
-        } else {
-            editor.stringValue = title
-        }
-    }
-
-    private func finishInlineTabTitleEdit(commit: Bool) {
-        pendingInlineTabTitleEditWorkItem?.cancel()
-        pendingInlineTabTitleEditWorkItem = nil
-
-        guard let editor = inlineTabTitleEditor else { return }
-        let editedTitle = editor.stringValue
-        let targetController = inlineTabTitleEditorController
-
-        editor.delegate = nil
-        inlineTabTitleEditor = nil
-        inlineTabTitleEditorController = nil
-
-        if let currentEditor = editor.currentEditor(), firstResponder === currentEditor {
-            makeFirstResponder(nil)
-        } else if firstResponder === editor {
-            makeFirstResponder(nil)
-        }
-
-        editor.removeFromSuperview()
-        for (label, wasHidden) in inlineTabTitleHiddenLabels {
-            label.isHidden = wasHidden
-        }
-        inlineTabTitleHiddenLabels.removeAll()
-        if let buttonState = inlineTabTitleButtonState {
-            buttonState.button.title = buttonState.title
-            buttonState.button.attributedTitle = buttonState.attributedTitle ?? NSAttributedString(string: buttonState.title)
-        }
-        inlineTabTitleButtonState = nil
-
-        guard commit, let targetController else { return }
-        targetController.titleOverride = editedTitle.isEmpty ? nil : editedTitle
+        inlineTabTitleEditingCoordinator.beginEditing(for: targetWindow)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
@@ -455,33 +235,6 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
 
         guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
         targetController.promptTabTitle()
-    }
-
-    // MARK: NSTextFieldDelegate
-
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard control === inlineTabTitleEditor else { return false }
-
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            finishInlineTabTitleEdit(commit: true)
-            return true
-        }
-
-        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-            finishInlineTabTitleEdit(commit: false)
-            return true
-        }
-
-        return false
-    }
-
-    func controlTextDidEndEditing(_ obj: Notification) {
-        guard let inlineTabTitleEditor,
-              let finishedEditor = obj.object as? NSTextField,
-              finishedEditor === inlineTabTitleEditor
-        else { return }
-
-        finishInlineTabTitleEdit(commit: true)
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -1037,4 +790,43 @@ private func makeTabColorPaletteView(
     ))
     hostingView.frame.size = hostingView.intrinsicContentSize
     return hostingView
+}
+
+// MARK: - Inline Tab Title Editing
+
+extension TerminalWindow: InlineTabTitleEditingCoordinatorDelegate {
+    func inlineTabTitleEditingCoordinator(
+        _ coordinator: InlineTabTitleEditingCoordinator,
+        canRenameTabFor targetWindow: NSWindow
+    ) -> Bool {
+        targetWindow.windowController is BaseTerminalController
+    }
+
+    func inlineTabTitleEditingCoordinator(
+        _ coordinator: InlineTabTitleEditingCoordinator,
+        titleFor targetWindow: NSWindow
+    ) -> String {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else {
+            return targetWindow.title
+        }
+
+        return targetController.titleOverride ?? targetWindow.title
+    }
+
+    func inlineTabTitleEditingCoordinator(
+        _ coordinator: InlineTabTitleEditingCoordinator,
+        didCommitTitle editedTitle: String,
+        for targetWindow: NSWindow
+    ) {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.titleOverride = editedTitle.isEmpty ? nil : editedTitle
+    }
+
+    func inlineTabTitleEditingCoordinator(
+        _ coordinator: InlineTabTitleEditingCoordinator,
+        performFallbackRenameFor targetWindow: NSWindow
+    ) {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.promptTabTitle()
+    }
 }
