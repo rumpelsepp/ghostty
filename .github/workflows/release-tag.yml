@@ -130,9 +130,19 @@ jobs:
       GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
 
       - uses: DeterminateSystems/nix-installer-action@main
         with:
