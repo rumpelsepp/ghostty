@@ -290,7 +290,12 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         editor.isBezeled = false
         editor.drawsBackground = false
         editor.focusRingType = .none
-        editor.lineBreakMode = .byTruncatingTail
+        editor.lineBreakMode = .byClipping
+        if let editorCell = editor.cell as? NSTextFieldCell {
+            editorCell.wraps = false
+            editorCell.usesSingleLineMode = true
+            editorCell.isScrollable = true
+        }
         if let sourceLabel {
             applyTextStyle(to: editor, from: sourceLabel, title: editedTitle)
         }
@@ -328,17 +333,11 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
 
     private func tabTitleEditorFrame(for tabButton: NSView, sourceLabel: NSTextField?) -> NSRect {
         let bounds = tabButton.bounds
-        let sideInset = min(24, max(10, bounds.width * 0.12))
-        var frame = bounds.insetBy(dx: sideInset, dy: 0)
+        let horizontalInset: CGFloat = 6
+        var frame = bounds.insetBy(dx: horizontalInset, dy: 0)
 
         if let sourceLabel {
             let labelFrame = tabButton.convert(sourceLabel.bounds, from: sourceLabel)
-            let horizontalPadding: CGFloat = 6
-            frame.origin.x = max(sideInset, labelFrame.minX - horizontalPadding)
-            frame.size.width = min(
-                labelFrame.width + (horizontalPadding * 2),
-                bounds.width - (sideInset * 2)
-            )
             frame.origin.y = labelFrame.minY
             frame.size.height = labelFrame.height
         }
