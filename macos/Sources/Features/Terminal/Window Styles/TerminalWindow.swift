@@ -261,19 +261,6 @@ class TerminalWindow: NSWindow, NSTextFieldDelegate {
         )
     }
 
-    private func beginInlineTabTitleEdit(atScreenPoint screenPoint: NSPoint) -> Bool {
-        guard let hit = tabButtonHit(atScreenPoint: screenPoint),
-              let targetWindow = tabbedWindows?[safe: hit.index],
-              let targetController = targetWindow.windowController as? BaseTerminalController
-        else { return false }
-
-        return beginInlineTabTitleEdit(
-            tabButton: hit.tabButton,
-            targetWindow: targetWindow,
-            targetController: targetController
-        )
-    }
-
     private func beginInlineTabTitleEdit(
         tabButton: NSView,
         targetWindow: NSWindow,
