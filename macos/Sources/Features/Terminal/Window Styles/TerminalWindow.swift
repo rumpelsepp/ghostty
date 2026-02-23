@@ -37,8 +37,8 @@ class TerminalWindow: NSWindow {
     /// Sets up our tab context menu
     private var tabMenuObserver: NSObjectProtocol?
 
-    /// Coordinates inline tab title editing for this host window.
-    private lazy var inlineTabTitleEditingCoordinator = InlineTabTitleEditingCoordinator(
+    /// Handles inline tab title editing for this host window.
+    private lazy var tabTitleEditor = TabTitleEditor(
         hostWindow: self,
         delegate: self
     )
@@ -181,7 +181,7 @@ class TerminalWindow: NSWindow {
     override var canBecomeMain: Bool { return true }
 
     override func sendEvent(_ event: NSEvent) {
-        if inlineTabTitleEditingCoordinator.handleDoubleClick(event) {
+        if tabTitleEditor.handleDoubleClick(event) {
             return
         }
 
@@ -189,7 +189,7 @@ class TerminalWindow: NSWindow {
     }
 
     override func close() {
-        inlineTabTitleEditingCoordinator.finishEditing(commit: true)
+        tabTitleEditor.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
     }
@@ -224,7 +224,7 @@ class TerminalWindow: NSWindow {
 
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        inlineTabTitleEditingCoordinator.beginEditing(for: targetWindow)
+        tabTitleEditor.beginEditing(for: targetWindow)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
@@ -794,16 +794,16 @@ private func makeTabColorPaletteView(
 
 // MARK: - Inline Tab Title Editing
 
-extension TerminalWindow: InlineTabTitleEditingCoordinatorDelegate {
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+extension TerminalWindow: TabTitleEditorDelegate {
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow
     ) -> Bool {
         targetWindow.windowController is BaseTerminalController
     }
 
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         titleFor targetWindow: NSWindow
     ) -> String {
         guard let targetController = targetWindow.windowController as? BaseTerminalController else {
@@ -813,8 +813,8 @@ extension TerminalWindow: InlineTabTitleEditingCoordinatorDelegate {
         return targetController.titleOverride ?? targetWindow.title
     }
 
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         didCommitTitle editedTitle: String,
         for targetWindow: NSWindow
     ) {
@@ -822,8 +822,8 @@ extension TerminalWindow: InlineTabTitleEditingCoordinatorDelegate {
         targetController.titleOverride = editedTitle.isEmpty ? nil : editedTitle
     }
 
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         performFallbackRenameFor targetWindow: NSWindow
     ) {
         guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }

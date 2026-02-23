@@ -1,39 +1,39 @@
 import AppKit
 
-/// Delegate used by ``InlineTabTitleEditingCoordinator`` to resolve tab-specific behavior.
-protocol InlineTabTitleEditingCoordinatorDelegate: AnyObject {
+/// Delegate used by ``TabTitleEditor`` to resolve tab-specific behavior.
+protocol TabTitleEditorDelegate: AnyObject {
     /// Returns whether inline rename should be allowed for the given tab window.
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow
     ) -> Bool
 
     /// Returns the current title value to seed into the inline editor.
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         titleFor targetWindow: NSWindow
     ) -> String
 
     /// Called when inline editing commits a title for a target tab window.
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         didCommitTitle editedTitle: String,
         for targetWindow: NSWindow
     )
 
     /// Called when inline editing could not start and the host should show a fallback flow.
-    func inlineTabTitleEditingCoordinator(
-        _ coordinator: InlineTabTitleEditingCoordinator,
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
         performFallbackRenameFor targetWindow: NSWindow
     )
 }
 
 /// Handles inline tab title editing for native AppKit window tabs.
-final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
+final class TabTitleEditor: NSObject, NSTextFieldDelegate {
     /// Host window containing the tab bar where editing occurs.
     private weak var hostWindow: NSWindow?
     /// Delegate that provides and commits title data for target tab windows.
-    private weak var delegate: InlineTabTitleEditingCoordinatorDelegate?
+    private weak var delegate: TabTitleEditorDelegate?
 
     /// Active inline editor view, if editing is in progress.
     private weak var inlineTitleEditor: NSTextField?
@@ -47,7 +47,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
     private var pendingEditWorkItem: DispatchWorkItem?
 
     /// Creates a coordinator bound to a host window and rename delegate.
-    init(hostWindow: NSWindow, delegate: InlineTabTitleEditingCoordinatorDelegate) {
+    init(hostWindow: NSWindow, delegate: TabTitleEditorDelegate) {
         self.hostWindow = hostWindow
         self.delegate = delegate
     }
@@ -57,7 +57,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
     func handleDoubleClick(_ event: NSEvent) -> Bool {
         // We only want double-clicks
         guard event.type == .leftMouseDown, event.clickCount == 2 else { return false }
-        
+
         // If we don't have a host window to look up the click, we do nothing.
         guard let hostWindow else { return false }
 
@@ -65,7 +65,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
         let locationInScreen = hostWindow.convertPoint(toScreen: event.locationInWindow)
         guard let tabIndex = hostWindow.tabIndex(atScreenPoint: locationInScreen),
               let targetWindow = hostWindow.tabbedWindows?[safe: tabIndex],
-              delegate?.inlineTabTitleEditingCoordinator(self, canRenameTabFor: targetWindow) == true
+              delegate?.tabTitleEditor(self, canRenameTabFor: targetWindow) == true
         else { return false }
 
         // We need to start editing in a separate event loop tick, so set that up.
@@ -77,7 +77,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
             }
 
             // Inline editing failed, so trigger fallback rename whatever it is.
-            self.delegate?.inlineTabTitleEditingCoordinator(self, performFallbackRenameFor: targetWindow)
+            self.delegate?.tabTitleEditor(self, performFallbackRenameFor: targetWindow)
         }
 
         pendingEditWorkItem = workItem
@@ -95,7 +95,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
               let tabbedWindows = hostWindow.tabbedWindows,
               let tabIndex = tabbedWindows.firstIndex(of: targetWindow),
               let tabButton = hostWindow.tabButtonsInVisualOrder()[safe: tabIndex],
-              delegate?.inlineTabTitleEditingCoordinator(self, canRenameTabFor: targetWindow) == true
+              delegate?.tabTitleEditor(self, canRenameTabFor: targetWindow) == true
         else { return false }
 
         // If we have a pending edit, we need to cancel it because we got
@@ -108,7 +108,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
         let titleLabels = tabButton
             .descendants(withClassName: "NSTextField")
             .compactMap { $0 as? NSTextField }
-        let editedTitle = delegate?.inlineTabTitleEditingCoordinator(self, titleFor: targetWindow) ?? targetWindow.title
+        let editedTitle = delegate?.tabTitleEditor(self, titleFor: targetWindow) ?? targetWindow.title
         let sourceLabel = sourceTabTitleLabel(from: titleLabels, matching: editedTitle)
         let editorFrame = tabTitleEditorFrame(for: tabButton, sourceLabel: sourceLabel)
         guard editorFrame.width >= 20, editorFrame.height >= 14 else { return false }
@@ -215,7 +215,7 @@ final class InlineTabTitleEditingCoordinator: NSObject, NSTextFieldDelegate {
 
         // Delegate owns title persistence semantics (including empty-title handling).
         guard commit, let targetWindow else { return }
-        delegate?.inlineTabTitleEditingCoordinator(self, didCommitTitle: editedTitle, for: targetWindow)
+        delegate?.tabTitleEditor(self, didCommitTitle: editedTitle, for: targetWindow)
     }
 
     /// Chooses an editor frame that aligns with the tab title within the tab button.
