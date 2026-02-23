@@ -125,6 +125,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         scrollbar: terminal.Scrollbar,
         scrollbar_dirty: bool,
 
+        /// Tracks the last bottom-right pin of the screen to detect new output.
+        /// When the final line changes (node or y differs), new content was added.
+        /// Used for scroll-to-bottom on output feature.
+        last_bottom_node: ?usize,
+        last_bottom_y: terminal.size.CellCountInt,
+
         /// The most recent viewport matches so that we can render search
         /// matches in the visible frame. This is provided asynchronously
         /// from the search thread so we have the dirty flag to also note
@@ -563,6 +569,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             colorspace: configpkg.Config.WindowColorspace,
             blending: configpkg.Config.AlphaBlending,
             background_blur: configpkg.Config.BackgroundBlur,
+            scroll_to_bottom_on_output: bool,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -636,6 +643,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .colorspace = config.@"window-colorspace",
                     .blending = config.@"alpha-blending",
                     .background_blur = config.@"background-blur",
+                    .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
                     .arena = arena,
                 };
             }
@@ -699,6 +707,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .focused = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
+                .last_bottom_node = null,
+                .last_bottom_y = 0,
                 .search_matches = null,
                 .search_selected_match = null,
                 .search_matches_dirty = false,
@@ -1166,6 +1176,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     return;
                 }
 
+                // If scroll-to-bottom on output is enabled, check if the final line
+                // changed by comparing the bottom-right pin. If the node pointer or
+                // y offset changed, new content was added to the screen.
+                // Update this BEFORE we update our render state so we can
+                // draw the new scrolled data immediately.
+                if (self.config.scroll_to_bottom_on_output) scroll: {
+                    const br = state.terminal.screens.active.pages.getBottomRight(.screen) orelse break :scroll;
+
+                    // If the pin hasn't changed, then don't scroll.
+                    if (self.last_bottom_node == @intFromPtr(br.node) and
+                        self.last_bottom_y == br.y) break :scroll;
+
+                    // Update tracked pin state for next frame
+                    self.last_bottom_node = @intFromPtr(br.node);
+                    self.last_bottom_y = br.y;
+
+                    // Scroll
+                    state.terminal.scrollViewport(.bottom);
+                }
+
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
 
@@ -1196,6 +1226,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // kitty state on every frame because any cell change can move
                 // an image.
                 if (self.images.kittyRequiresUpdate(state.terminal)) {
+                    // We need to grab the draw mutex since this updates
+                    // our image state that drawFrame uses.
+                    self.draw_mutex.lock();
+                    defer self.draw_mutex.unlock();
                     self.images.kittyUpdate(
                         self.alloc,
                         state.terminal,

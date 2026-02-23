@@ -1,15 +1,16 @@
 on:
-  discussion_comment:
-    types: [created]
+  schedule:
+    - cron: "0 0 * * 1" # Every Monday at midnight UTC
+  workflow_dispatch:
 
-name: "Vouch - Manage by Discussion"
+name: "Vouch - Sync CODEOWNERS"
 
 concurrency:
   group: vouch-manage
   cancel-in-progress: false
 
 jobs:
-  manage:
+  sync:
     runs-on: namespace-profile-ghostty-xsm
     steps:
       - uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
@@ -22,13 +23,9 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: mitchellh/vouch/action/manage-by-discussion@daa39f90448eb4054ad334d7f53959a7efb5005b # v1.4.0
+      - uses: mitchellh/vouch/action/sync-codeowners@daa39f90448eb4054ad334d7f53959a7efb5005b # v1.4.0
         with:
-          discussion-number: ${{ github.event.discussion.number }}
-          comment-node-id: ${{ github.event.comment.node_id }}
-          vouch-keyword: "!vouch"
-          denounce-keyword: "!denounce"
-          unvouch-keyword: "!unvouch"
+          repo: ${{ github.repository }}
           pull-request: "true"
           merge-immediately: "true"
         env:

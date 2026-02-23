@@ -24,7 +24,7 @@ extension NSWorkspace {
             nil
         )?.takeRetainedValue() as? URL
     }
-    
+
     /// Returns the URL of the default application for opening files with the specified file extension.
     /// - Parameter ext: The file extension to find the default application for.
     /// - Returns: The URL of the default application, or nil if no default application is found.

@@ -109,7 +109,7 @@ pub const Action = union(Key) {
     /// Toggle the quick terminal in or out.
     toggle_quick_terminal,
 
-    /// Toggle the command palette. This currently only works on macOS.
+    /// Toggle the command palette.
     toggle_command_palette,
 
     /// Toggle the visibility of all Ghostty terminal windows.
