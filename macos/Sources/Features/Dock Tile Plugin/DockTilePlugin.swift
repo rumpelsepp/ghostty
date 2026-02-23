@@ -1,10 +1,14 @@
 import AppKit
 
-/// This class lives as long as the app is in the Dock.
-/// If the user pins the app to the Dock, it will not be deallocated.
-/// Be careful when storing state in this class.
 class DockTilePlugin: NSObject, NSDockTilePlugIn {
+    // WARNING: An instance of this class is alive as long as Ghostty's icon is
+    // in the doc (running or not!), so keep any state and processing to a
+    // minimum to respect resource usage.
+    
     private let pluginBundle = Bundle(for: DockTilePlugin.self)
+    
+    // Separate defaults based on debug vs release builds so we can test icons
+    // without messing up releases.
     #if DEBUG
     private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty.debug")
     #else
@@ -21,7 +25,7 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
         // Try to restore the previous icon on launch.
         iconDidChange(ghosttyUserDefaults.appIcon, dockTile: dockTile)
 
-        iconChangeObserver = DistributedNotificationCenter.default().publisher(for: Ghostty.Notification.ghosttyIconDidChange)
+        iconChangeObserver = DistributedNotificationCenter.default().publisher(for: .ghosttyIconDidChange)
             .map { [weak self] _ in
                 self?.ghosttyUserDefaults?.appIcon
             }
@@ -41,7 +45,7 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
         return url.path
     }
 
-    func iconDidChange(_ newIcon: Ghostty.CustomAppIcon?, dockTile: NSDockTile) {
+    func iconDidChange(_ newIcon: AppIcon?, dockTile: NSDockTile) {
         guard let appIcon = newIcon?.image(in: pluginBundle) else {
             resetIcon(dockTile: dockTile)
             return
@@ -80,6 +84,7 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
             appIcon = pluginBundle.image(forResource: "AppIconImage")!
             NSWorkspace.shared.setIcon(appIcon, forFile: appBundlePath)
         }
+        
         NSWorkspace.shared.noteFileSystemChanged(appBundlePath)
         dockTile.setIcon(appIcon)
     }
@@ -99,17 +104,3 @@ private extension NSDockTile {
 }
 
 extension NSDockTile: @unchecked @retroactive Sendable {}
-
-#if DEBUG
-private extension NSAlert {
-    static func notify(_ message: String, image: NSImage?) {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = message
-            alert.icon = image
-            _ = alert.runModal()
-        }
-    }
-}
-#endif
-

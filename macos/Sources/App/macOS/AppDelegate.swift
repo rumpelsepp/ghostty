@@ -928,6 +928,7 @@ class AppDelegate: NSObject,
         } else {
             GlobalEventTap.shared.disable()
         }
+        
         updateAppIcon(from: config)
     }
 
@@ -941,9 +942,9 @@ class AppDelegate: NSObject,
         // clean it up here to trigger a correct update of the current config.
         UserDefaults.standard.removeObject(forKey: "CustomGhosttyIcon")
         DispatchQueue.global().async {
-            UserDefaults.standard.appIcon = Ghostty.CustomAppIcon(config: config)
+            UserDefaults.standard.appIcon = AppIcon(config: config)
             DistributedNotificationCenter.default()
-                .postNotificationName(Ghostty.Notification.ghosttyIconDidChange, object: nil, userInfo: nil, deliverImmediately: true)
+                .postNotificationName(.ghosttyIconDidChange, object: nil, userInfo: nil, deliverImmediately: true)
         }
     }
 

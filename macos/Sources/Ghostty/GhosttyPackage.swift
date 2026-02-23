@@ -11,6 +11,14 @@ extension ghostty_command_s: @unchecked @retroactive Sendable {}
 /// may be unsafe but the value itself is safe to send across threads.
 extension ghostty_surface_t: @unchecked @retroactive Sendable {}
 
+extension Ghostty {
+    // The user notification category identifier
+    static let userNotificationCategory = "com.mitchellh.ghostty.userNotification"
+
+    // The user notification "Show" action
+    static let userNotificationActionShow = "com.mitchellh.ghostty.userNotification.Show"
+}
+
 // MARK: Build Info
 
 extension Ghostty {

@@ -97,9 +97,13 @@
 		8193245D2F24E80800A9ED8F /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				App/macOS/AppIcon.swift,
 				"Features/Colorized Ghostty Icon/ColorizedGhosttyIcon.swift",
-				Ghostty/SharedPackage.swift,
+				"Features/Dock Tile Plugin/AppIcon.swift",
+				"Features/Dock Tile Plugin/DockTilePlugin.swift",
+				"Features/Dock Tile Plugin/Notification+AppIcon.swift",
+				"Features/Dock Tile Plugin/UserDefaults+AppIcon.swift",
+				Ghostty/Ghostty.ConfigTypes.swift,
+				Ghostty/GhosttyPackageMeta.swift,
 				Helpers/CrossKit.swift,
 				"Helpers/Extensions/NSImage+Extension.swift",
 				"Helpers/Extensions/OSColor+Extension.swift",
@@ -111,7 +115,6 @@
 			membershipExceptions = (
 				App/macOS/AppDelegate.swift,
 				"App/macOS/AppDelegate+Ghostty.swift",
-				App/macOS/AppIcon.swift,
 				App/macOS/main.swift,
 				App/macOS/MainMenu.xib,
 				Features/About/About.xib,
@@ -139,6 +142,10 @@
 				"Features/Colorized Ghostty Icon/ColorizedGhosttyIconView.swift",
 				"Features/Command Palette/CommandPalette.swift",
 				"Features/Command Palette/TerminalCommandPalette.swift",
+				"Features/Dock Tile Plugin/AppIcon.swift",
+				"Features/Dock Tile Plugin/DockTilePlugin.swift",
+				"Features/Dock Tile Plugin/Notification+AppIcon.swift",
+				"Features/Dock Tile Plugin/UserDefaults+AppIcon.swift",
 				"Features/Global Keybinds/GlobalEventTap.swift",
 				Features/QuickTerminal/QuickTerminal.xib,
 				Features/QuickTerminal/QuickTerminalController.swift,
@@ -238,6 +245,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/iOS/iOSApp.swift,
+				"Features/Dock Tile Plugin/DockTilePlugin.swift",
 				"Ghostty/Surface View/SurfaceView_UIKit.swift",
 			);
 			target = A5B30530299BEAAA0047F10C /* Ghostty */;
@@ -246,7 +254,6 @@
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		810ACCA02E9D3302004F8F92 /* GhosttyUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = GhosttyUITests; sourceTree = "<group>"; };
-		8193245A2F24E7D000A9ED8F /* DockTilePlugIn */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DockTilePlugIn; sourceTree = "<group>"; };
 		81F82BC72E82815D001EDFA7 /* Sources */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (81F82CB12E8281F9001EDFA7 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 81F82CB02E8281F5001EDFA7 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 8193245D2F24E80800A9ED8F /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Sources; sourceTree = "<group>"; };
 		A54F45F42E1F047A0046BD5C /* Tests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Tests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -321,7 +328,6 @@
 				A51BFC282B30F26D00E92F16 /* GhosttyDebug.entitlements */,
 				3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */,
 				81F82BC72E82815D001EDFA7 /* Sources */,
-				8193245A2F24E7D000A9ED8F /* DockTilePlugIn */,
 				A54F45F42E1F047A0046BD5C /* Tests */,
 				810ACCA02E9D3302004F8F92 /* GhosttyUITests */,
 				A5D495A3299BECBA00DD1313 /* Frameworks */,
@@ -388,9 +394,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				8193245A2F24E7D000A9ED8F /* DockTilePlugIn */,
 			);
 			name = DockTilePlugin;
 			packageProductDependencies = (
@@ -845,13 +848,14 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ghostty Dock Tile Plugin";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mitchellh.DockTilePlugin;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mitchellh.ghostty-dock-tile";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
@@ -873,13 +877,14 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ghostty Dock Tile Plugin";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mitchellh.DockTilePlugin;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mitchellh.ghostty-dock-tile";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
@@ -901,13 +906,14 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ghostty Dock Tile Plugin";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mitchellh.DockTilePlugin;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mitchellh.ghostty-dock-tile";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;

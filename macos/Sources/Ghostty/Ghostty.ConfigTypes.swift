@@ -1,22 +1,5 @@
-import Foundation
-import os
-
-enum Ghostty {
-    // The primary logger used by the GhosttyKit libraries.
-    static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier!,
-        category: "ghostty"
-    )
-
-    // All the notifications that will be emitted will be put here.
-    struct Notification {}
-
-    // The user notification category identifier
-    static let userNotificationCategory = "com.mitchellh.ghostty.userNotification"
-
-    // The user notification "Show" action
-    static let userNotificationActionShow = "com.mitchellh.ghostty.userNotification.Show"
-}
+// This file contains the configuration types for Ghostty so that alternate targets
+// can get typed information without depending on all the dependencies of GhosttyKit.
 
 extension Ghostty {
     /// macos-icon
