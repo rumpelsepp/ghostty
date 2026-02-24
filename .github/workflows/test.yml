@@ -644,13 +644,19 @@ jobs:
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
       # Nix breaks xcodebuild so this has to be run outside.
       - name: Build Ghostty.app
-        run: cd macos && xcodebuild -target Ghostty
+        run: |
+          cd macos
+          xcodebuild -target Ghostty \
+            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
       # Build the iOS target without code signing just to verify it works.
       - name: Build Ghostty iOS
         run: |
           cd macos
-          xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO"
+          xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO" \
+            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
   build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-tahoe
