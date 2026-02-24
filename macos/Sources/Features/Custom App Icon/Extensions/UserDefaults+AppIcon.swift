@@ -11,14 +11,6 @@ extension UserDefaults {
                 removeObject(forKey: Self.customIconKeyOld)
             }
             
-            // If we have an old, pre-docktileplugin value, then we parse the
-            // the old value (try) and set it.
-            if let previous = string(forKey: Self.customIconKeyOld), let newIcon = AppIcon(string: previous) {
-                // update new storage once
-                self.appIcon = newIcon
-                return newIcon
-            }
-            
             // Check if we have the new key for our dock tile plugin format.
             guard let data = data(forKey: Self.customIconKeyNew) else {
                 return nil

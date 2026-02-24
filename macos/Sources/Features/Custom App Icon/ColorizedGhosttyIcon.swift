@@ -1,6 +1,33 @@
 import Cocoa
 
-struct ColorizedGhosttyIcon {
+struct ColorizedGhosttyIcon: Codable, Equatable {
+    init(screenColors: [NSColor], ghostColor: NSColor, frame: Ghostty.MacOSIconFrame) {
+        self.screenColors = screenColors
+        self.ghostColor = ghostColor
+        self.frame = frame
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let screenColorHexes = try container.decode([String].self, forKey: .screenColors)
+        let screenColors = screenColorHexes.compactMap(NSColor.init(hex:))
+        let ghostColorHex = try container.decode(String.self, forKey: .ghostColor)
+        guard let ghostColor = NSColor(hex: ghostColorHex) else {
+            throw NSError(domain: "Custom Icon Error", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to decode ghost color from \(ghostColorHex)"
+            ])
+        }
+        let frame = try container.decode(Ghostty.MacOSIconFrame.self, forKey: .frame)
+        self.init(screenColors: screenColors, ghostColor: ghostColor, frame: frame)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(screenColors.compactMap(\.hexString), forKey: .screenColors)
+        try container.encode(ghostColor.hexString, forKey: .ghostColor)
+        try container.encode(frame, forKey: .frame)
+    }
+
     /// The colors that make up the gradient of the screen.
     let screenColors: [NSColor]
 
@@ -9,6 +36,12 @@ struct ColorizedGhosttyIcon {
 
     /// The frame type to use
     let frame: Ghostty.MacOSIconFrame
+
+    private enum CodingKeys: String, CodingKey {
+        case screenColors
+        case ghostColor
+        case frame
+    }
 
     /// Make a custom colorized ghostty icon.
     func makeImage(in bundle: Bundle) -> NSImage? {
