@@ -39,6 +39,24 @@ extension NSWindow {
         guard let firstWindow = tabGroup?.windows.first else { return true }
         return firstWindow === self
     }
+
+    /// Wraps `addTabbedWindow` with an Objective-C exception catcher because AppKit can
+    /// occasionally throw NSExceptions in visual tab picker flows.
+    @discardableResult
+    func addTabbedWindowSafely(
+        _ child: NSWindow,
+        ordered: NSWindow.OrderingMode
+    ) -> Bool {
+        var error: NSError?
+        let success = GhosttyAddTabbedWindowSafely(self, child, ordered.rawValue, &error)
+
+        if let error {
+            let reason = error.localizedDescription
+            Ghostty.logger.error("addTabbedWindow failed: \(reason)")
+        }
+
+        return success
+    }
 }
 
 /// Native tabbing private API usage. :(
