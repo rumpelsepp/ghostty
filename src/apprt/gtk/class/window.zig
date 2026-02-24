@@ -339,6 +339,7 @@ pub const Window = extern struct {
             .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
             .init("new-window", actionNewWindow, null),
+            .init("prompt-surface-title", actionPromptSurfaceTitle, null),
             .init("prompt-tab-title", actionPromptTabTitle, null),
             .init("prompt-context-tab-title", actionPromptContextTabTitle, null),
             .init("ring-bell", actionRingBell, null),
@@ -1801,6 +1802,14 @@ pub const Window = extern struct {
         const child = page.getChild();
         const tab = gobject.ext.cast(Tab, child) orelse return;
         tab.promptTabTitle();
+    }
+
+    fn actionPromptSurfaceTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.prompt_surface_title);
     }
 
     fn actionPromptTabTitle(
