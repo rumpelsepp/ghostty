@@ -231,6 +231,7 @@ jobs:
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
           # Codesign the app bundle
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
