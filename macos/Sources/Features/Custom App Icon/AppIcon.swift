@@ -56,7 +56,7 @@ enum AppIcon: Equatable, Codable {
         }
     }
 #endif
-    
+
     func image(in bundle: Bundle) -> NSImage? {
         switch self {
         case .official:

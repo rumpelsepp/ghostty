@@ -928,7 +928,7 @@ class AppDelegate: NSObject,
         } else {
             GlobalEventTap.shared.disable()
         }
-        
+
         updateAppIcon(from: config)
     }
 

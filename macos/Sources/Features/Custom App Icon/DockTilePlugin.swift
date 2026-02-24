@@ -4,9 +4,9 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
     // WARNING: An instance of this class is alive as long as Ghostty's icon is
     // in the doc (running or not!), so keep any state and processing to a
     // minimum to respect resource usage.
-    
+
     private let pluginBundle = Bundle(for: DockTilePlugin.self)
-    
+
     // Separate defaults based on debug vs release builds so we can test icons
     // without messing up releases.
     #if DEBUG
@@ -84,7 +84,7 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
             appIcon = pluginBundle.image(forResource: "AppIconImage")!
             NSWorkspace.shared.setIcon(appIcon, forFile: appBundlePath)
         }
-        
+
         NSWorkspace.shared.noteFileSystemChanged(appBundlePath)
         dockTile.setIcon(appIcon)
     }
