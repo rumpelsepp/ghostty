@@ -19,11 +19,13 @@
 # discussion by the author. Maintainers can denounce users by commenting
 # "!denounce" or "!denounce [username]" on a discussion.
 00-kat
+aalhendi
 abudvytis
 aindriu80
 alanmoyano
 alexfeijoo44
 andrejdaskalov
+atomk
 balazs-szucs
 bennettp123
 benodiwal
@@ -36,6 +38,7 @@ brentschroeter
 charliie-dev
 chernetskyi
 craziestowl
+curtismoncoq
 d-dudas
 daiimus
 damyanbogoev
@@ -60,6 +63,7 @@ jacobsandlund
 jake-stewart
 jcollie
 johnslavik
+josephmart
 jparise
 juniqlim
 kawarimidoll
@@ -68,8 +72,10 @@ khipp
 kirwiisp
 kjvdven
 kloneets
+koranir
 kristina8888
 kristofersoler
+laxystem
 liby
 lonsagisawa
 mahnokropotkinvich
@@ -81,7 +87,10 @@ mikailmm
 misairuzame
 mitchellh
 miupa
+mrmage
 mtak
+natesmyth
+neo773
 nicosuave
 nwehg
 oshdubh
@@ -94,9 +103,9 @@ piedrahitac
 pluiedev
 pouwerkerk
 priyans-hu
-prsweet
 qwerasd205
 reo101
+rgehan
 rmengelbrecht
 rmunn
 rockorager
@@ -104,6 +113,7 @@ rpfaeffle
 secrus
 silveirapf
 slsrepo
+sunshine-syz
 tdslot
 ticclick
 tnagatomi

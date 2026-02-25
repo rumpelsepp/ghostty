@@ -454,18 +454,18 @@ extension Ghostty {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:next"
                         ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
-                    }) {
+                    }, label: {
                         Image(systemName: "chevron.up")
-                    }
+                    })
                     .buttonStyle(SearchButtonStyle())
 
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:previous"
                         ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
-                    }) {
+                    }, label: {
                         Image(systemName: "chevron.down")
-                    }
+                    })
                     .buttonStyle(SearchButtonStyle())
 
                     Button(action: onClose) {
