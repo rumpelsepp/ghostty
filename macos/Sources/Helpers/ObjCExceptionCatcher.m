@@ -12,6 +12,8 @@ BOOL GhosttyAddTabbedWindowSafely(
     NSError * _Nullable * _Nullable error
 ) {
 #if TARGET_OS_OSX
+    // AppKit occasionally throws NSException while reparenting tabbed windows.
+    // We must catch it in Objective-C; letting this cross into Swift is unsafe.
     @try {
         [((NSWindow *)parent) addTabbedWindow:(NSWindow *)child ordered:(NSWindowOrderingMode)ordered];
         return YES;

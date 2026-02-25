@@ -41,7 +41,8 @@ extension NSWindow {
     }
 
     /// Wraps `addTabbedWindow` with an Objective-C exception catcher because AppKit can
-    /// occasionally throw NSExceptions in visual tab picker flows.
+    /// throw NSExceptions in visual tab picker flows. Swift cannot safely recover from
+    /// those exceptions, so we route through Obj-C and log a recoverable failure.
     @discardableResult
     func addTabbedWindowSafely(
         _ child: NSWindow,
@@ -49,10 +50,8 @@ extension NSWindow {
     ) -> Bool {
         var error: NSError?
         let success = GhosttyAddTabbedWindowSafely(self, child, ordered.rawValue, &error)
-
         if let error {
-            let reason = error.localizedDescription
-            Ghostty.logger.error("addTabbedWindow failed: \(reason)")
+            Ghostty.logger.error("addTabbedWindow failed: \(error.localizedDescription)")
         }
 
         return success
