@@ -231,6 +231,7 @@
 				Helpers/LastWindowPosition.swift,
 				Helpers/MetalView.swift,
 				Helpers/NonDraggableHostingView.swift,
+				Helpers/ObjCExceptionCatcher.m,
 				Helpers/PermissionRequest.swift,
 				Helpers/Private/CGS.swift,
 				Helpers/Private/Dock.swift,
