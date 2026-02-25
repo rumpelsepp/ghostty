@@ -1,9 +1,6 @@
 #import "ObjCExceptionCatcher.h"
-#import <TargetConditionals.h>
 
-#if TARGET_OS_OSX
 #import <AppKit/AppKit.h>
-#endif
 
 BOOL GhosttyAddTabbedWindowSafely(
     id parent,
@@ -11,7 +8,6 @@ BOOL GhosttyAddTabbedWindowSafely(
     NSInteger ordered,
     NSError * _Nullable * _Nullable error
 ) {
-#if TARGET_OS_OSX
     // AppKit occasionally throws NSException while reparenting tabbed windows.
     // We must catch it in Objective-C; letting this cross into Swift is unsafe.
     @try {
@@ -30,14 +26,4 @@ BOOL GhosttyAddTabbedWindowSafely(
 
         return NO;
     }
-#else
-    if (error != NULL) {
-        *error = [NSError errorWithDomain:@"Ghostty.ObjCException"
-                                     code:2
-                                 userInfo:@{
-                                     NSLocalizedDescriptionKey: @"GhosttyAddTabbedWindowSafely is unavailable on this platform.",
-                                 }];
-    }
-    return NO;
-#endif
 }
