@@ -433,10 +433,17 @@ extension Ghostty {
         /// Determine if a given notification should be presented to the user when Ghostty is running in the foreground.
         func shouldPresentNotification(notification: UNNotification) -> Bool {
             let userInfo = notification.request.content.userInfo
+
+            // We always require the notification to be attached to a surface.
             guard let uuidString = userInfo["surface"] as? String,
                   let uuid = UUID(uuidString: uuidString),
                   let surface = delegate?.findSurface(forUUID: uuid),
                   let window = surface.window else { return false }
+
+            // If we don't require focus then we're good!
+            let requireFocus = userInfo["requireFocus"] as? Bool ?? true
+            if !requireFocus { return true }
+
             return !window.isKeyWindow || !surface.focused
         }
 
@@ -1374,7 +1381,8 @@ extension Ghostty {
         private static func showDesktopNotification(
             _ surfaceView: SurfaceView,
             title: String,
-            body: String) {
+            body: String,
+            requireFocus: Bool = true) {
             let center = UNUserNotificationCenter.current()
             center.requestAuthorization(options: [.alert, .sound]) { _, error in
                 if let error = error {
@@ -1384,7 +1392,11 @@ extension Ghostty {
 
             center.getNotificationSettings { settings in
                 guard settings.authorizationStatus == .authorized else { return }
-                surfaceView.showUserNotification(title: title, body: body)
+                surfaceView.showUserNotification(
+                    title: title,
+                    body: body,
+                    requireFocus: requireFocus
+                )
             }
         }
 
@@ -1452,7 +1464,12 @@ extension Ghostty {
                         body = "Command took \(formattedDuration) and exited with code \(v.exit_code)."
                     }
 
-                    showDesktopNotification(surfaceView, title: title, body: body)
+                    showDesktopNotification(
+                        surfaceView,
+                        title: title,
+                        body: body,
+                        requireFocus: false
+                    )
                 }
 
             default:
