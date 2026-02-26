@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import Combine
 import UserNotifications
 import OSLog
 import Sparkle
@@ -152,12 +151,6 @@ class AppDelegate: NSObject,
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
-    /// Cancellables used for app-level bell badge tracking.
-    private var bellTrackingCancellables: Set<AnyCancellable> = []
-
-    /// Per-window bell observation cancellables keyed by controller identity.
-    private var windowBellCancellables: [ObjectIdentifier: AnyCancellable] = [:]
-
     /// Current bell state keyed by terminal controller identity.
     private var windowBellStates: [ObjectIdentifier: Bool] = [:]
 
@@ -243,6 +236,12 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(windowWillClose),
+            name: NSWindow.willCloseNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(quickTerminalDidChangeVisibility),
             name: .quickTerminalDidChangeVisibility,
             object: nil
@@ -261,6 +260,12 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(terminalWindowHasBell(_:)),
+            name: .terminalWindowBellDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(ghosttyNewWindow(_:)),
             name: Ghostty.Notification.ghosttyNewWindow,
             object: nil)
@@ -269,9 +274,6 @@ class AppDelegate: NSObject,
             selector: #selector(ghosttyNewTab(_:)),
             name: Ghostty.Notification.ghosttyNewTab,
             object: nil)
-
-        // Track per-window bell state and keep the dock badge in sync.
-        setupBellBadgeTracking()
 
         // Configure user notifications
         let actions = [
@@ -771,6 +773,14 @@ class AppDelegate: NSObject,
         syncFloatOnTopMenu(notification.object as? NSWindow)
     }
 
+    @objc private func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              let controller = window.windowController as? BaseTerminalController else { return }
+
+        windowBellStates[ObjectIdentifier(controller)] = nil
+        syncDockBadgeToTrackedBellState()
+    }
+
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
         guard let quickController = notification.object as? QuickTerminalController else { return }
         self.menuQuickTerminal?.state = if quickController.visible { .on } else { .off }
@@ -802,55 +812,12 @@ class AppDelegate: NSObject,
         }
     }
 
-    /// Sets up observation for all terminal window controllers and aggregates whether any
-    /// associated surface has an active bell.
-    private func setupBellBadgeTracking() {
-        let center = NotificationCenter.default
-        Publishers.MergeMany(
-            center.publisher(for: NSWindow.didBecomeMainNotification).map { _ in () },
-            center.publisher(for: NSWindow.willCloseNotification).map { _ in () }
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
-            self?.refreshTrackedTerminalWindows()
-        }
-        .store(in: &bellTrackingCancellables)
+    @objc private func terminalWindowHasBell(_ notification: Notification) {
+        guard let controller = notification.object as? BaseTerminalController,
+              let hasBell = notification.userInfo?[Notification.Name.terminalWindowHasBellKey] as? Bool else { return }
 
-        refreshTrackedTerminalWindows()
-        ghosttyUpdateBadgeForBell()
-    }
-
-    private func refreshTrackedTerminalWindows() {
-        let controllers = NSApp.windows.compactMap { $0.windowController as? BaseTerminalController }
-        let controllersByID = Dictionary(uniqueKeysWithValues: controllers.map { (ObjectIdentifier($0), $0) })
-        let trackedIDs = Set(windowBellCancellables.keys)
-        let currentIDs = Set(controllersByID.keys)
-
-        for id in trackedIDs.subtracting(currentIDs) {
-            windowBellCancellables[id]?.cancel()
-            windowBellCancellables[id] = nil
-            windowBellStates[id] = nil
-        }
-
-        for (id, controller) in controllersByID where windowBellCancellables[id] == nil {
-            windowBellCancellables[id] = makeWindowBellCancellable(controller: controller, id: id)
-        }
-
+        windowBellStates[ObjectIdentifier(controller)] = hasBell
         syncDockBadgeToTrackedBellState()
-    }
-
-    private func makeWindowBellCancellable(
-        controller: BaseTerminalController,
-        id: ObjectIdentifier
-    ) -> AnyCancellable {
-        controller.surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
-            .map { $0.values.contains(true) }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasBell in
-                self?.windowBellStates[id] = hasBell
-                self?.syncDockBadgeToTrackedBellState()
-            }
     }
 
     private func syncDockBadgeToTrackedBellState() {

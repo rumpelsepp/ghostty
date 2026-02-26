@@ -83,6 +83,9 @@ class BaseTerminalController: NSWindowController,
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
+    /// Cancellable for aggregating bell state across all surfaces in this controller.
+    private var bellStateCancellable: AnyCancellable?
+
     /// An override title for the tab/window set by the user via prompt_tab_title.
     /// When set, this takes precedence over the computed title from the terminal.
     var titleOverride: String? {
@@ -134,6 +137,9 @@ class BaseTerminalController: NSWindowController,
         // Initialize our initial surface.
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
         self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
+        
+        // Setup our bell state for the window
+        setupBellNotificationPublisher()
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -221,30 +227,6 @@ class BaseTerminalController: NSWindowController,
     }
 
     // MARK: Methods
-
-    /// Creates a publisher for values on all surfaces in this controller's tree.
-    ///
-    /// The publisher emits a dictionary of surface IDs to values whenever the tree changes
-    /// or any surface publishes a new value for the key path.
-    func surfaceValuesPublisher<Value>(
-        valueKeyPath: KeyPath<Ghostty.SurfaceView, Value>,
-        publisherKeyPath: KeyPath<Ghostty.SurfaceView, Published<Value>.Publisher>
-    ) -> AnyPublisher<[Ghostty.SurfaceView.ID: Value], Never> {
-        // `surfaceTree` can be replaced entirely when splits are added/removed/closed.
-        // For each tree snapshot we build a fresh publisher that watches all surfaces
-        // in that snapshot.
-        $surfaceTree
-            .map { tree in
-                tree.valuesPublisher(
-                    valueKeyPath: valueKeyPath,
-                    publisherKeyPath: publisherKeyPath
-                )
-            }
-            // Keep only the latest tree publisher active. This automatically cancels
-            // subscriptions for old/removed surfaces when the tree changes.
-            .switchToLatest()
-            .eraseToAnyPublisher()
-    }
 
     /// Create a new split.
     @discardableResult
@@ -1493,4 +1475,56 @@ extension BaseTerminalController: NSMenuItemValidation {
         }
         appliedColorScheme = scheme
     }
+}
+
+// MARK: Combine Methods
+
+extension BaseTerminalController {
+    /// Publishes an app-wide notification whenever this terminal window's aggregate
+    /// bell state changes.
+    private func setupBellNotificationPublisher() {
+        bellStateCancellable = surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
+            .map { $0.values.contains(true) }
+            .removeDuplicates()
+            .sink { [weak self] hasBell in
+                guard let self else { return }
+                NotificationCenter.default.post(
+                    name: .terminalWindowBellDidChangeNotification,
+                    object: self,
+                    userInfo: [Notification.Name.terminalWindowHasBellKey: hasBell]
+                )
+            }
+    }
+
+    /// Creates a publisher for values on all surfaces in this controller's tree.
+    ///
+    /// The publisher emits a dictionary of surface IDs to values whenever the tree changes
+    /// or any surface publishes a new value for the key path.
+    func surfaceValuesPublisher<Value>(
+        valueKeyPath: KeyPath<Ghostty.SurfaceView, Value>,
+        publisherKeyPath: KeyPath<Ghostty.SurfaceView, Published<Value>.Publisher>
+    ) -> AnyPublisher<[Ghostty.SurfaceView.ID: Value], Never> {
+        // `surfaceTree` can be replaced entirely when splits are added/removed/closed.
+        // For each tree snapshot we build a fresh publisher that watches all surfaces
+        // in that snapshot.
+        $surfaceTree
+            .map { tree in
+                tree.valuesPublisher(
+                    valueKeyPath: valueKeyPath,
+                    publisherKeyPath: publisherKeyPath
+                )
+            }
+            // Keep only the latest tree publisher active. This automatically cancels
+            // subscriptions for old/removed surfaces when the tree changes.
+            .switchToLatest()
+            .eraseToAnyPublisher()
+    }
+}
+
+// MARK: Notifications
+
+extension Notification.Name {
+    /// Terminal window aggregate bell state changed.
+    static let terminalWindowBellDidChangeNotification = Notification.Name("com.mitchellh.ghostty.terminalWindowBellDidChange")
+    static let terminalWindowHasBellKey = terminalWindowBellDidChangeNotification.rawValue + ".hasBell"
 }
