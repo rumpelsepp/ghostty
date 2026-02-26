@@ -151,12 +151,6 @@ class AppDelegate: NSObject,
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
-    /// Cached permission state for dock badges.
-    private var canShowDockBadgeForBell: Bool = false
-
-    /// Prevent repeated badge permission prompts.
-    private var hasRequestedDockBadgeAuthorization: Bool = false
-
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage?
 
@@ -338,9 +332,6 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
-
-        // Recompute the dock badge based on active terminal bell state.
-        syncDockBadgeToTrackedBellState()
 
         // First launch stuff
         if !applicationHasBecomeActive {
@@ -789,67 +780,49 @@ class AppDelegate: NSObject,
         if ghostty.config.bellFeatures.contains(.attention) {
             // Bounce the dock icon if we're not focused.
             NSApp.requestUserAttention(.informationalRequest)
-
-            // Handle setting the dock badge based on permissions
-            ghosttyUpdateBadgeForBell()
         }
     }
 
     @objc private func terminalWindowHasBell(_ notification: Notification) {
         guard notification.object is BaseTerminalController else { return }
-        syncDockBadgeToTrackedBellState()
+        syncDockBadge()
     }
 
-    private func syncDockBadgeToTrackedBellState() {
-        let anyBell = NSApp.windows
-            .compactMap { $0.windowController as? BaseTerminalController }
-            .contains { $0.bell }
-        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && anyBell
-
-        if wantsBadge && !canShowDockBadgeForBell && !hasRequestedDockBadgeAuthorization {
-            ghosttyUpdateBadgeForBell()
-        }
-
-        setDockBadge(wantsBadge && canShowDockBadgeForBell ? "•" : nil)
-    }
-
-    private func ghosttyUpdateBadgeForBell() {
+    private func syncDockBadge() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
-            DispatchQueue.main.async {
-                switch settings.authorizationStatus {
-                case .authorized:
-                    // Already authorized, check badge setting and set if enabled
-                    self.canShowDockBadgeForBell = settings.badgeSetting == .enabled
-                    self.syncDockBadgeToTrackedBellState()
-
-                case .notDetermined:
-                    guard !self.hasRequestedDockBadgeAuthorization else { return }
-                    self.hasRequestedDockBadgeAuthorization = true
-
-                    // Not determined yet, request authorization for badge
-                    center.requestAuthorization(options: [.badge]) { granted, error in
-                        if let error = error {
-                            Self.logger.warning("Error requesting badge authorization: \(error)")
-                            return
-                        }
-
+            switch settings.authorizationStatus {
+            case .authorized:
+                // If we're authorized and allow badges, then set the badge.
+                if settings.badgeSetting == .enabled {
+                    DispatchQueue.main.async {
+                        self.setDockBadge()
+                    }
+                }
+                
+            case .notDetermined:
+                // Not determined yet, request authorization for badge
+                center.requestAuthorization(options: [.badge]) { granted, error in
+                    if let error = error {
+                        Self.logger.warning("Error requesting badge authorization: \(error)")
+                        return
+                    }
+                    
+                    if granted {
+                        // Permission granted, set the badge
                         DispatchQueue.main.async {
-                            self.canShowDockBadgeForBell = granted
-                            self.syncDockBadgeToTrackedBellState()
+                            self.setDockBadge()
                         }
                     }
-
-                case .denied, .provisional, .ephemeral:
-                    // In these known non-authorized states, do not attempt to set the badge.
-                    self.canShowDockBadgeForBell = false
-                    self.syncDockBadgeToTrackedBellState()
-
-                @unknown default:
-                    // Handle future unknown states by doing nothing.
-                    self.canShowDockBadgeForBell = false
-                    self.syncDockBadgeToTrackedBellState()
                 }
+                
+            case .denied, .provisional, .ephemeral:
+                // In these known non-authorized states, do not attempt to set the badge.
+                break
+                
+            @unknown default:
+                // Handle future unknown states by doing nothing.
+                break
             }
         }
     }
@@ -874,7 +847,12 @@ class AppDelegate: NSObject,
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
 
-    private func setDockBadge(_ label: String? = "•") {
+    private func setDockBadge() {
+        let anyBell = NSApp.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .contains { $0.bell }
+        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && anyBell
+        let label = wantsBadge ? "•" : nil
         NSApp.dockTile.badgeLabel = label
         NSApp.dockTile.display()
     }
@@ -918,7 +896,9 @@ class AppDelegate: NSObject,
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
         TerminalController.all.forEach { $0.relabelTabs() }
-        syncDockBadgeToTrackedBellState()
+        
+        // Update our badge since config can change what we show.
+        syncDockBadge()
 
         // Config could change window appearance. We wrap this in an async queue because when
         // this is called as part of application launch it can deadlock with an internal
