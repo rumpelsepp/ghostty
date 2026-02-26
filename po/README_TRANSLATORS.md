@@ -38,7 +38,7 @@ With this, you're ready to localize!
 ## Locale names
 
 A locale name will always consist of a [two letter language
-code](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) (i.e.
+code](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) (e.g.
 `de`, `es`, `fr`). Sometimes, for languages that have regional variations
 (such as `zh` and `es`), the locale name will include a [two letter
 country code](https://en.wikipedia.org/wiki/List_of_ISO_3166_country_codes).
