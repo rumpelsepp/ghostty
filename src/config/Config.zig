@@ -5645,7 +5645,7 @@ pub const Palette = struct {
 
     /// ghostty_config_palette_s
     pub const C = extern struct {
-        colors: [265]Color.C,
+        colors: [256]Color.C,
     };
 
     pub fn cval(self: Self) Palette.C {
