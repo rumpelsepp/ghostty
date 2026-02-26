@@ -37,6 +37,7 @@ CIMGUI_API void ImGuiStyle_ImGuiStyle(cimgui::ImGuiStyle* self)
 // next Init to reload the GL function pointers via imgl3wInit().
 #ifndef IMGUI_DISABLE
 #if __has_include("backends/imgui_impl_opengl3.h")
+#ifdef ZIGPKG_IMGUI_ENABLE_OPENGL3
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_opengl3_loader.h"
 
@@ -45,7 +46,8 @@ CIMGUI_API void ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup()
     ::ImGui_ImplOpenGL3_Shutdown();
     memset(&imgl3wProcs, 0, sizeof(imgl3wProcs));
 }
-#endif
-#endif
+#endif // ZIGPKG_IMGUI_ENABLE_OPENGL3
+#endif // __has_include("backends/imgui_impl_opengl3.h")
+#endif // IMGUI_DISABLE
 
 }
