@@ -848,11 +848,11 @@ class AppDelegate: NSObject,
     }
 
     private func setDockBadge() {
-        let anyBell = NSApp.windows
+        let bellCount = NSApp.windows
             .compactMap { $0.windowController as? BaseTerminalController }
-            .contains { $0.bell }
-        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && anyBell
-        let label = wantsBadge ? "•" : nil
+            .reduce(0) { $0 + ($1.bell ? 1 : 0) }
+        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && bellCount > 0
+        let label = wantsBadge ? (bellCount > 99 ? "99+" : String(bellCount)) : nil
         NSApp.dockTile.badgeLabel = label
         NSApp.dockTile.display()
     }
