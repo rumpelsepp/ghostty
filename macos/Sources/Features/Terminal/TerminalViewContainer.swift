@@ -87,8 +87,14 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
         let newValue = DerivedConfig(config: config)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
-        // Add some delay to wait TerminalWindow to update first
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: updateGlassEffectIfNeeded)
+
+        // Add some delay to wait TerminalWindow to update first to ensure
+        // that some of our properties are updated. This is a HACK to ensure
+        // light/dark themes work, and we will come up with a better way
+        // in the future.
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.05,
+            execute: updateGlassEffectIfNeeded)
     }
 
     @objc private func windowDidBecomeKey(_ notification: Notification) {
