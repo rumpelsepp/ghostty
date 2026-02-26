@@ -245,6 +245,12 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(terminalWindowHasBell(_:)),
+            name: .terminalWindowBellDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(ghosttyNewWindow(_:)),
             name: Ghostty.Notification.ghosttyNewWindow,
             object: nil)
@@ -326,9 +332,6 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
-
-        // Clear the dock badge when the app becomes active
-        self.setDockBadge(nil)
 
         // First launch stuff
         if !applicationHasBecomeActive {
@@ -777,18 +780,20 @@ class AppDelegate: NSObject,
         if ghostty.config.bellFeatures.contains(.attention) {
             // Bounce the dock icon if we're not focused.
             NSApp.requestUserAttention(.informationalRequest)
-
-            // Handle setting the dock badge based on permissions
-            ghosttyUpdateBadgeForBell()
         }
     }
 
-    private func ghosttyUpdateBadgeForBell() {
+    @objc private func terminalWindowHasBell(_ notification: Notification) {
+        guard notification.object is BaseTerminalController else { return }
+        syncDockBadge()
+    }
+
+    private func syncDockBadge() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized:
-                // Already authorized, check badge setting and set if enabled
+                // If we're authorized and allow badges, then set the badge.
                 if settings.badgeSetting == .enabled {
                     DispatchQueue.main.async {
                         self.setDockBadge()
@@ -842,7 +847,12 @@ class AppDelegate: NSObject,
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
 
-    private func setDockBadge(_ label: String? = "•") {
+    private func setDockBadge() {
+        let bellCount = NSApp.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .reduce(0) { $0 + ($1.bell ? 1 : 0) }
+        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && bellCount > 0
+        let label = wantsBadge ? (bellCount > 99 ? "99+" : String(bellCount)) : nil
         NSApp.dockTile.badgeLabel = label
         NSApp.dockTile.display()
     }
@@ -886,6 +896,9 @@ class AppDelegate: NSObject,
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
         TerminalController.all.forEach { $0.relabelTabs() }
+
+        // Update our badge since config can change what we show.
+        syncDockBadge()
 
         // Config could change window appearance. We wrap this in an async queue because when
         // this is called as part of application launch it can deadlock with an internal

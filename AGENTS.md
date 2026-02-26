@@ -18,13 +18,6 @@ A file for [guiding coding agents](https://agents.md/).
 - macOS app: `macos/`
 - GTK (Linux and FreeBSD) app: `src/apprt/gtk`
 
-## macOS App
-
-- Do not use `xcodebuild`
-- Use `zig build` to build the macOS app and any shared Zig code
-- Use `zig build run` to build and run the macOS app
-- Run Xcode tests using `zig build test`
-
 ## Issue and PR Guidelines
 
 - Never create an issue.
