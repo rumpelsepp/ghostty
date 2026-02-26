@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 import UserNotifications
 import OSLog
 import Sparkle
@@ -151,6 +152,21 @@ class AppDelegate: NSObject,
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
+    /// Cancellables used for app-level bell badge tracking.
+    private var bellTrackingCancellables: Set<AnyCancellable> = []
+
+    /// Per-window bell observation cancellables keyed by controller identity.
+    private var windowBellCancellables: [ObjectIdentifier: AnyCancellable] = [:]
+
+    /// Current bell state keyed by terminal controller identity.
+    private var windowBellStates: [ObjectIdentifier: Bool] = [:]
+
+    /// Cached permission state for dock badges.
+    private var canShowDockBadgeForBell: Bool = false
+
+    /// Prevent repeated badge permission prompts.
+    private var hasRequestedDockBadgeAuthorization: Bool = false
+
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage?
 
@@ -254,6 +270,9 @@ class AppDelegate: NSObject,
             name: Ghostty.Notification.ghosttyNewTab,
             object: nil)
 
+        // Track per-window bell state and keep the dock badge in sync.
+        setupBellBadgeTracking()
+
         // Configure user notifications
         let actions = [
             UNNotificationAction(identifier: Ghostty.userNotificationActionShow, title: "Show")
@@ -327,8 +346,8 @@ class AppDelegate: NSObject,
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
 
-        // Clear the dock badge when the app becomes active
-        self.setDockBadge(nil)
+        // Recompute the dock badge based on active terminal bell state.
+        syncDockBadgeToTrackedBellState()
 
         // First launch stuff
         if !applicationHasBecomeActive {
@@ -783,41 +802,105 @@ class AppDelegate: NSObject,
         }
     }
 
+    /// Sets up observation for all terminal window controllers and aggregates whether any
+    /// associated surface has an active bell.
+    private func setupBellBadgeTracking() {
+        let center = NotificationCenter.default
+        Publishers.MergeMany(
+            center.publisher(for: NSWindow.didBecomeMainNotification).map { _ in () },
+            center.publisher(for: NSWindow.willCloseNotification).map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.refreshTrackedTerminalWindows()
+        }
+        .store(in: &bellTrackingCancellables)
+
+        refreshTrackedTerminalWindows()
+        ghosttyUpdateBadgeForBell()
+    }
+
+    private func refreshTrackedTerminalWindows() {
+        let controllers = NSApp.windows.compactMap { $0.windowController as? BaseTerminalController }
+        let controllersByID = Dictionary(uniqueKeysWithValues: controllers.map { (ObjectIdentifier($0), $0) })
+        let trackedIDs = Set(windowBellCancellables.keys)
+        let currentIDs = Set(controllersByID.keys)
+
+        for id in trackedIDs.subtracting(currentIDs) {
+            windowBellCancellables[id]?.cancel()
+            windowBellCancellables[id] = nil
+            windowBellStates[id] = nil
+        }
+
+        for (id, controller) in controllersByID where windowBellCancellables[id] == nil {
+            windowBellCancellables[id] = makeWindowBellCancellable(controller: controller, id: id)
+        }
+
+        syncDockBadgeToTrackedBellState()
+    }
+
+    private func makeWindowBellCancellable(
+        controller: BaseTerminalController,
+        id: ObjectIdentifier
+    ) -> AnyCancellable {
+        controller.surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
+            .map { $0.values.contains(true) }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasBell in
+                self?.windowBellStates[id] = hasBell
+                self?.syncDockBadgeToTrackedBellState()
+            }
+    }
+
+    private func syncDockBadgeToTrackedBellState() {
+        let anyBell = windowBellStates.values.contains(true)
+        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && anyBell
+
+        if wantsBadge && !canShowDockBadgeForBell && !hasRequestedDockBadgeAuthorization {
+            ghosttyUpdateBadgeForBell()
+        }
+
+        setDockBadge(wantsBadge && canShowDockBadgeForBell ? "•" : nil)
+    }
+
     private func ghosttyUpdateBadgeForBell() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized:
-                // Already authorized, check badge setting and set if enabled
-                if settings.badgeSetting == .enabled {
-                    DispatchQueue.main.async {
-                        self.setDockBadge()
-                    }
-                }
+            DispatchQueue.main.async {
+                switch settings.authorizationStatus {
+                case .authorized:
+                    // Already authorized, check badge setting and set if enabled
+                    self.canShowDockBadgeForBell = settings.badgeSetting == .enabled
+                    self.syncDockBadgeToTrackedBellState()
 
-            case .notDetermined:
-                // Not determined yet, request authorization for badge
-                center.requestAuthorization(options: [.badge]) { granted, error in
-                    if let error = error {
-                        Self.logger.warning("Error requesting badge authorization: \(error)")
-                        return
-                    }
+                case .notDetermined:
+                    guard !self.hasRequestedDockBadgeAuthorization else { return }
+                    self.hasRequestedDockBadgeAuthorization = true
 
-                    if granted {
-                        // Permission granted, set the badge
+                    // Not determined yet, request authorization for badge
+                    center.requestAuthorization(options: [.badge]) { granted, error in
+                        if let error = error {
+                            Self.logger.warning("Error requesting badge authorization: \(error)")
+                            return
+                        }
+
                         DispatchQueue.main.async {
-                            self.setDockBadge()
+                            self.canShowDockBadgeForBell = granted
+                            self.syncDockBadgeToTrackedBellState()
                         }
                     }
+
+                case .denied, .provisional, .ephemeral:
+                    // In these known non-authorized states, do not attempt to set the badge.
+                    self.canShowDockBadgeForBell = false
+                    self.syncDockBadgeToTrackedBellState()
+
+                @unknown default:
+                    // Handle future unknown states by doing nothing.
+                    self.canShowDockBadgeForBell = false
+                    self.syncDockBadgeToTrackedBellState()
                 }
-
-            case .denied, .provisional, .ephemeral:
-                // In these known non-authorized states, do not attempt to set the badge.
-                break
-
-            @unknown default:
-                // Handle future unknown states by doing nothing.
-                break
             }
         }
     }
@@ -886,6 +969,7 @@ class AppDelegate: NSObject,
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
         TerminalController.all.forEach { $0.relabelTabs() }
+        syncDockBadgeToTrackedBellState()
 
         // Config could change window appearance. We wrap this in an async queue because when
         // this is called as part of application launch it can deadlock with an internal

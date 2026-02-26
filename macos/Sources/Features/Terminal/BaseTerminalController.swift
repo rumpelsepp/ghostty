@@ -222,6 +222,30 @@ class BaseTerminalController: NSWindowController,
 
     // MARK: Methods
 
+    /// Creates a publisher for values on all surfaces in this controller's tree.
+    ///
+    /// The publisher emits a dictionary of surface IDs to values whenever the tree changes
+    /// or any surface publishes a new value for the key path.
+    func surfaceValuesPublisher<Value>(
+        valueKeyPath: KeyPath<Ghostty.SurfaceView, Value>,
+        publisherKeyPath: KeyPath<Ghostty.SurfaceView, Published<Value>.Publisher>
+    ) -> AnyPublisher<[Ghostty.SurfaceView.ID: Value], Never> {
+        // `surfaceTree` can be replaced entirely when splits are added/removed/closed.
+        // For each tree snapshot we build a fresh publisher that watches all surfaces
+        // in that snapshot.
+        $surfaceTree
+            .map { tree in
+                tree.valuesPublisher(
+                    valueKeyPath: valueKeyPath,
+                    publisherKeyPath: publisherKeyPath
+                )
+            }
+            // Keep only the latest tree publisher active. This automatically cancels
+            // subscriptions for old/removed surfaces when the tree changes.
+            .switchToLatest()
+            .eraseToAnyPublisher()
+    }
+
     /// Create a new split.
     @discardableResult
     func newSplit(
