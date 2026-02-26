@@ -136,7 +136,8 @@ const locales = [_][]const u8{
 }
 ```
 
-You should then be able to run `zig build run` and see your translations in action!
+You should then be able to run `zig build run` and see your translations in
+action! See the ["Viewing translations" section](#viewing-translations) below.
 
 Before opening a pull request with the new translation file, you should also
 add your translation file to the `CODEOWNERS` file. Find the `# Localization`
@@ -150,6 +151,26 @@ translation file that you created and `Y` is your [localization team name](#loca
  /po/zh_CN.po @ghostty-org/zh_CN
 +/po/X.po @ghostty-org/Y
 ```
+
+## Viewing translations
+
+> [!NOTE]
+> The localization system is not yet implemented for macOS, so it is not
+> possible to view your translations there.
+
+Simply run `zig build run`. Ghostty uses your system language by default; if
+your translations are of the language of your system, use
+`zig build run -- --language=X` (where `X` is your locale name). You can
+alternatively set the `LANGUAGE` environment variable to your locale name.
+
+On some desktop environments, such as KDE Plasma, Ghostty uses server-side
+decorations by default. This hides many strings from the UI, which is
+undesirable when viewing your translations. You can force Ghostty to use
+client-side decorations with `zig build run -- --window-decoration=client`.
+
+Some strings are present in multiple places! A notable example is the context
+menus: the hamburger menu in the header bar duplicates many strings present in
+the right click menu.
 
 ## Style guide
 
