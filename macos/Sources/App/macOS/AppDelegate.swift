@@ -799,7 +799,7 @@ class AppDelegate: NSObject,
                         self.setDockBadge()
                     }
                 }
-                
+
             case .notDetermined:
                 // Not determined yet, request authorization for badge
                 center.requestAuthorization(options: [.badge]) { granted, error in
@@ -807,7 +807,7 @@ class AppDelegate: NSObject,
                         Self.logger.warning("Error requesting badge authorization: \(error)")
                         return
                     }
-                    
+
                     if granted {
                         // Permission granted, set the badge
                         DispatchQueue.main.async {
@@ -815,11 +815,11 @@ class AppDelegate: NSObject,
                         }
                     }
                 }
-                
+
             case .denied, .provisional, .ephemeral:
                 // In these known non-authorized states, do not attempt to set the badge.
                 break
-                
+
             @unknown default:
                 // Handle future unknown states by doing nothing.
                 break
@@ -896,7 +896,7 @@ class AppDelegate: NSObject,
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
         TerminalController.all.forEach { $0.relabelTabs() }
-        
+
         // Update our badge since config can change what we show.
         syncDockBadge()
 
