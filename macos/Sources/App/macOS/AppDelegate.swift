@@ -151,9 +151,6 @@ class AppDelegate: NSObject,
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
-    /// Current bell state keyed by terminal controller identity.
-    private var windowBellStates: [ObjectIdentifier: Bool] = [:]
-
     /// Cached permission state for dock badges.
     private var canShowDockBadgeForBell: Bool = false
 
@@ -232,12 +229,6 @@ class AppDelegate: NSObject,
             self,
             selector: #selector(windowDidBecomeKey),
             name: NSWindow.didBecomeKeyNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowWillClose),
-            name: NSWindow.willCloseNotification,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -773,14 +764,6 @@ class AppDelegate: NSObject,
         syncFloatOnTopMenu(notification.object as? NSWindow)
     }
 
-    @objc private func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow,
-              let controller = window.windowController as? BaseTerminalController else { return }
-
-        windowBellStates[ObjectIdentifier(controller)] = nil
-        syncDockBadgeToTrackedBellState()
-    }
-
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
         guard let quickController = notification.object as? QuickTerminalController else { return }
         self.menuQuickTerminal?.state = if quickController.visible { .on } else { .off }
@@ -813,15 +796,14 @@ class AppDelegate: NSObject,
     }
 
     @objc private func terminalWindowHasBell(_ notification: Notification) {
-        guard let controller = notification.object as? BaseTerminalController,
-              let hasBell = notification.userInfo?[Notification.Name.terminalWindowHasBellKey] as? Bool else { return }
-
-        windowBellStates[ObjectIdentifier(controller)] = hasBell
+        guard notification.object is BaseTerminalController else { return }
         syncDockBadgeToTrackedBellState()
     }
 
     private func syncDockBadgeToTrackedBellState() {
-        let anyBell = windowBellStates.values.contains(true)
+        let anyBell = NSApp.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .contains { $0.bell }
         let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && anyBell
 
         if wantsBadge && !canShowDockBadgeForBell && !hasRequestedDockBadgeAuthorization {

@@ -51,6 +51,9 @@ class BaseTerminalController: NSWindowController,
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
+    /// True when any surface in this controller currently has an active bell.
+    @Published private(set) var bell: Bool = false
+
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
         self.derivedConfig.focusFollowsMouse
@@ -137,7 +140,7 @@ class BaseTerminalController: NSWindowController,
         // Initialize our initial surface.
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
         self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
-        
+
         // Setup our bell state for the window
         setupBellNotificationPublisher()
 
@@ -1206,6 +1209,17 @@ class BaseTerminalController: NSWindowController,
     func windowWillClose(_ notification: Notification) {
         guard let window else { return }
 
+        // Emit a final bell-state transition so any observers can clear state
+        // without separately tracking NSWindow lifecycle events.
+        if bell {
+            bell = false
+            NotificationCenter.default.post(
+                name: .terminalWindowBellDidChangeNotification,
+                object: self,
+                userInfo: [Notification.Name.terminalWindowHasBellKey: false]
+            )
+        }
+
         // I don't know if this is required anymore. We previously had a ref cycle between
         // the view and the window so we had to nil this out to break it but I think this
         // may now be resolved. We should verify that no memory leaks and we can remove this.
@@ -1486,8 +1500,10 @@ extension BaseTerminalController {
         bellStateCancellable = surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
             .map { $0.values.contains(true) }
             .removeDuplicates()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] hasBell in
                 guard let self else { return }
+                bell = hasBell
                 NotificationCenter.default.post(
                     name: .terminalWindowBellDidChangeNotification,
                     object: self,
