@@ -160,7 +160,7 @@ jobs:
 
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.3
+          SPARKLE_VERSION: 2.9.0
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -328,7 +328,7 @@ jobs:
 
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.3
+          SPARKLE_VERSION: 2.9.0
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
