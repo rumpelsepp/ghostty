@@ -103,8 +103,9 @@ Lines beginning with `#` are comments, of which there are several kinds:
   affect translators in other locales.
 
 The first entry of the `.po` file has an empty `msgid`. This entry is special
-as it stores the metadata related to the `.po` file itself. You usually do
-not need to modify it.
+as it stores the metadata related to the `.po` file itself. You should update
+`PO-Revision-Date` and `Last-Translator` once you have finished your edits, but
+you normally do not need to modify other metadata.
 
 ## Creating new translation files
 
@@ -150,7 +151,7 @@ translation file that you created and `Y` is your [localization team name](#loca
 +/po/X.po @ghostty-org/Y
 ```
 
-## Style Guide
+## Style guide
 
 These are general style guidelines for translations. Naturally, the specific
 recommended standards will differ based on the specific language/locale,
@@ -187,3 +188,45 @@ but these should serve as a baseline for the tone and voice of any translation.
   [GNOME Human Interface Guidelines](https://developer.gnome.org/hig/guidelines/writing-style.html)
   on Linux, and [Apple's Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/writing)
   on macOS.
+
+## Common issues
+
+Some mistakes are frequently made during translation. The most common ones are
+listed below.
+
+### Unicode ellipses
+
+English source strings use the ellipses character, `…`, instead of three full
+stops, `...`. If your language uses ellipses, use the ellipses character instead
+of three full stops in your translations. You can copy this character from the
+English source string itself.
+
+### Title case
+
+Title case is a feature of English writing where most words start with a capital
+letter: This Clause Is Written In Title Case. It is commonly found in titles,
+hence its name; however, English is one of the only languages that uses title
+case. If your language does not use title case, **do not use title case for the
+sake of copying the English source**. Please use the casing conventions of your
+language instead.
+
+### `X-Generator` field
+
+Many `.po` file editors add an `X-Generator` field to the metadata section.
+These should be removed as other translators might overwrite them when using
+a different editor, and some (such as Poedit) update the line when a different
+_version_ is used—this adds unnecessary changes to the diff.
+
+You can remove the `X-Generator` field by simply deleting that line from the
+file.
+
+### Updating metadata (revision date)
+
+It is very easy to overlook the `PO-Revision-Date` field in the metadata at the
+top of the file. Please update this when you are done modifying the
+translations!
+
+Depending on who last translated the file, the `Last-Translator` field might
+also need updating: make sure it has your name and email. Finally, if your name
+and email are not present in the copyright comment at the top of the file,
+consider adding it there.
