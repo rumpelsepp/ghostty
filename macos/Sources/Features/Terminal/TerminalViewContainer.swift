@@ -87,7 +87,8 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
         let newValue = DerivedConfig(config: config)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
-        DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
+        // Add some delay to wait TerminalWindow to update first
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: updateGlassEffectIfNeeded)
     }
 
     @objc private func windowDidBecomeKey(_ notification: Notification) {
