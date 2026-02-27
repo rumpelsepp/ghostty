@@ -96,10 +96,9 @@ pub const compatibility = std.StaticStringMap(
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
-/// system default language. The language must be fully specified, including the
-/// encoding. For example:
+/// system default language. For example:
 ///
-///     language = de_DE.UTF-8
+///     language = de
 ///
 /// will force the strings in Ghostty's graphical user interface to be in German
 /// rather than the system default.
