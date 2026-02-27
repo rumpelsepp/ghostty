@@ -155,6 +155,10 @@ pub const Command = union(Key) {
 
     kitty_clipboard_protocol: KittyClipboardProtocol,
 
+    /// OSC 3008. Hierarchical context signalling (UAPI spec).
+    /// https://uapi-group.org/specifications/specs/osc_context/
+    context_signal: parsers.context_signal.Command,
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
@@ -187,6 +191,7 @@ pub const Command = union(Key) {
             "conemu_comment",
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
+            "context_signal",
         },
     );
 
@@ -226,7 +231,6 @@ pub const Command = union(Key) {
             8 => 64,
             else => unreachable,
         });
-        // @compileLog(@sizeOf(Command));
     }
 };
 
@@ -311,12 +315,16 @@ pub const Parser = struct {
         @"0",
         @"1",
         @"2",
+        @"3",
         @"4",
         @"5",
         @"6",
         @"7",
         @"8",
         @"9",
+        @"30",
+        @"300",
+        @"3008",
         @"10",
         @"11",
         @"12",
@@ -411,6 +419,7 @@ pub const Parser = struct {
             .show_desktop_notification,
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
+            .context_signal,
             => {},
         }
 
@@ -488,12 +497,33 @@ pub const Parser = struct {
                 '0' => self.state = .@"0",
                 '1' => self.state = .@"1",
                 '2' => self.state = .@"2",
+                '3' => self.state = .@"3",
                 '4' => self.state = .@"4",
                 '5' => self.state = .@"5",
                 '6' => self.state = .@"6",
                 '7' => self.state = .@"7",
                 '8' => self.state = .@"8",
                 '9' => self.state = .@"9",
+                else => self.state = .invalid,
+            },
+
+            .@"3" => switch (c) {
+                '0' => self.state = .@"30",
+                else => self.state = .invalid,
+            },
+
+            .@"30" => switch (c) {
+                '0' => self.state = .@"300",
+                else => self.state = .invalid,
+            },
+
+            .@"300" => switch (c) {
+                '8' => self.state = .@"3008",
+                else => self.state = .invalid,
+            },
+
+            .@"3008" => switch (c) {
+                ';' => self.writeToFixed(),
                 else => self.state = .invalid,
             },
 
@@ -703,6 +733,13 @@ pub const Parser = struct {
             .@"52" => parsers.clipboard_operation.parse(self, terminator_ch),
 
             .@"55" => null,
+
+            .@"3",
+            .@"30",
+            .@"300",
+            => null,
+
+            .@"3008" => parsers.context_signal.parse(self, terminator_ch),
 
             .@"6" => null,
 
