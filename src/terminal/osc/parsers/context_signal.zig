@@ -21,8 +21,8 @@ pub const Command = struct {
     id: []const u8,
     /// Raw unparsed metadata fields after the context ID.
     /// Fields are semicolon-separated key=value pairs.
-    /// Parsed lazily via `readField`.
-    fields_raw: []const u8,
+    /// Parsed lazily via `readOption`.
+    metadata: []const u8,
 
     pub const Action = enum {
         /// OSC 3008;start=<id> — initiates, updates, or returns to a context.
@@ -33,11 +33,11 @@ pub const Command = struct {
 
     /// Read a metadata field value from the raw fields string.
     /// Returns null if the field is not present or malformed.
-    pub fn readField(
+    pub fn readOption(
         self: Command,
-        comptime field: Field,
-    ) field.Type() {
-        return field.read(self.fields_raw);
+        comptime option: Field,
+    ) option.Type() {
+        return option.read(self.metadata);
     }
 };
 
@@ -57,21 +57,7 @@ pub const ContextType = enum {
     session,
 
     pub fn parse(value: []const u8) ?ContextType {
-        const map = std.StaticStringMap(ContextType).initComptime(.{
-            .{ "boot", .boot },
-            .{ "container", .container },
-            .{ "vm", .vm },
-            .{ "elevate", .elevate },
-            .{ "chpriv", .chpriv },
-            .{ "subcontext", .subcontext },
-            .{ "remote", .remote },
-            .{ "shell", .shell },
-            .{ "command", .command },
-            .{ "app", .app },
-            .{ "service", .service },
-            .{ "session", .session },
-        });
-        return map.get(value);
+        return std.meta.stringToEnum(ContextType, value);
     }
 };
 
@@ -83,13 +69,7 @@ pub const ExitStatus = enum {
     interrupt,
 
     pub fn parse(value: []const u8) ?ExitStatus {
-        const map = std.StaticStringMap(ExitStatus).initComptime(.{
-            .{ "success", .success },
-            .{ "failure", .failure },
-            .{ "crash", .crash },
-            .{ "interrupt", .interrupt },
-        });
-        return map.get(value);
+        return std.meta.stringToEnum(ExitStatus, value);
     }
 };
 
@@ -143,26 +123,7 @@ pub const Field = enum {
     }
 
     fn key(comptime self: Field) []const u8 {
-        return switch (self) {
-            .type => "type",
-            .user => "user",
-            .hostname => "hostname",
-            .machineid => "machineid",
-            .bootid => "bootid",
-            .pid => "pid",
-            .pidfdid => "pidfdid",
-            .comm => "comm",
-            .cwd => "cwd",
-            .cmdline => "cmdline",
-            .vm => "vm",
-            .container => "container",
-            .targetuser => "targetuser",
-            .targethost => "targethost",
-            .sessionid => "sessionid",
-            .exit => "exit",
-            .status => "status",
-            .signal => "signal",
-        };
+        return @tagName(self);
     }
 
     /// Read the field value from the raw fields string.
@@ -213,11 +174,16 @@ pub const Field = enum {
             return switch (self) {
                 .type => ContextType.parse(value),
                 .exit => ExitStatus.parse(value),
-                .pid, .pidfdid, .status => std.fmt.parseInt(
-                    u64,
-                    value,
-                    10,
-                ) catch null,
+                .pid, .pidfdid, .status => value: {
+                    for (value) |c| {
+                        if (c < '0' or c > '9') break :value null;
+                    }
+                    break :value std.fmt.parseInt(
+                        u64,
+                        value,
+                        10,
+                    ) catch null;
+                },
                 // String fields
                 .user,
                 .hostname,
@@ -306,13 +272,13 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
     }
 
     // Extract raw metadata fields (everything after the ID)
-    const fields_raw = if (id_end < rest.len) rest[id_end + 1 ..] else "";
+    const metadata = if (id_end < rest.len) rest[id_end + 1 ..] else "";
 
     parser.command = .{
         .context_signal = .{
             .action = action,
             .id = id,
-            .fields_raw = fields_raw,
+            .metadata = metadata,
         },
     };
 
@@ -334,7 +300,7 @@ test "OSC 3008: basic start command" {
     try testing.expect(cmd == .context_signal);
     try testing.expect(cmd.context_signal.action == .start);
     try testing.expectEqualStrings("abc123", cmd.context_signal.id);
-    try testing.expectEqualStrings("", cmd.context_signal.fields_raw);
+    try testing.expectEqualStrings("", cmd.context_signal.metadata);
 }
 
 test "OSC 3008: basic end command" {
@@ -348,7 +314,7 @@ test "OSC 3008: basic end command" {
     try testing.expect(cmd == .context_signal);
     try testing.expect(cmd.context_signal.action == .end);
     try testing.expectEqualStrings("abc123", cmd.context_signal.id);
-    try testing.expectEqualStrings("", cmd.context_signal.fields_raw);
+    try testing.expectEqualStrings("", cmd.context_signal.metadata);
 }
 
 test "OSC 3008: start with metadata fields" {
@@ -364,9 +330,9 @@ test "OSC 3008: start with metadata fields" {
     try testing.expectEqualStrings("bed86fab93af4328bbed0a1224af6d40", cmd.context_signal.id);
 
     // Read individual fields
-    try testing.expect(cmd.context_signal.readField(.type).? == .container);
-    try testing.expectEqualStrings("lennart", cmd.context_signal.readField(.user).?);
-    try testing.expectEqualStrings("zeta", cmd.context_signal.readField(.hostname).?);
+    try testing.expect(cmd.context_signal.readOption(.type).? == .container);
+    try testing.expectEqualStrings("lennart", cmd.context_signal.readOption(.user).?);
+    try testing.expectEqualStrings("zeta", cmd.context_signal.readOption(.hostname).?);
 }
 
 test "OSC 3008: start with all common fields" {
@@ -378,14 +344,14 @@ test "OSC 3008: start with all common fields" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .context_signal);
-    try testing.expect(cmd.context_signal.readField(.type).? == .shell);
-    try testing.expectEqualStrings("root", cmd.context_signal.readField(.user).?);
-    try testing.expectEqualStrings("myhost", cmd.context_signal.readField(.hostname).?);
-    try testing.expectEqualStrings("3deb5353d3ba43d08201c136a47ead7b", cmd.context_signal.readField(.machineid).?);
-    try testing.expectEqualStrings("d4a3d0fdf2e24fdea6d971ce73f4fbf2", cmd.context_signal.readField(.bootid).?);
-    try testing.expectEqual(@as(u64, 1062862), cmd.context_signal.readField(.pid).?);
-    try testing.expectEqual(@as(u64, 1063162), cmd.context_signal.readField(.pidfdid).?);
-    try testing.expectEqualStrings("bash", cmd.context_signal.readField(.comm).?);
+    try testing.expect(cmd.context_signal.readOption(.type).? == .shell);
+    try testing.expectEqualStrings("root", cmd.context_signal.readOption(.user).?);
+    try testing.expectEqualStrings("myhost", cmd.context_signal.readOption(.hostname).?);
+    try testing.expectEqualStrings("3deb5353d3ba43d08201c136a47ead7b", cmd.context_signal.readOption(.machineid).?);
+    try testing.expectEqualStrings("d4a3d0fdf2e24fdea6d971ce73f4fbf2", cmd.context_signal.readOption(.bootid).?);
+    try testing.expectEqual(@as(u64, 1062862), cmd.context_signal.readOption(.pid).?);
+    try testing.expectEqual(@as(u64, 1063162), cmd.context_signal.readOption(.pidfdid).?);
+    try testing.expectEqualStrings("bash", cmd.context_signal.readOption(.comm).?);
 }
 
 test "OSC 3008: end with exit metadata" {
@@ -399,8 +365,8 @@ test "OSC 3008: end with exit metadata" {
     try testing.expect(cmd == .context_signal);
     try testing.expect(cmd.context_signal.action == .end);
     try testing.expectEqualStrings("myctx", cmd.context_signal.id);
-    try testing.expect(cmd.context_signal.readField(.exit).? == .success);
-    try testing.expectEqual(@as(u64, 0), cmd.context_signal.readField(.status).?);
+    try testing.expect(cmd.context_signal.readOption(.exit).? == .success);
+    try testing.expectEqual(@as(u64, 0), cmd.context_signal.readOption(.status).?);
 }
 
 test "OSC 3008: end with failure exit" {
@@ -412,9 +378,9 @@ test "OSC 3008: end with failure exit" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .context_signal);
-    try testing.expect(cmd.context_signal.readField(.exit).? == .failure);
-    try testing.expectEqual(@as(u64, 1), cmd.context_signal.readField(.status).?);
-    try testing.expectEqualStrings("SIGKILL", cmd.context_signal.readField(.signal).?);
+    try testing.expect(cmd.context_signal.readOption(.exit).? == .failure);
+    try testing.expectEqual(@as(u64, 1), cmd.context_signal.readOption(.status).?);
+    try testing.expectEqualStrings("SIGKILL", cmd.context_signal.readOption(.signal).?);
 }
 
 test "OSC 3008: unknown fields are ignored" {
@@ -426,8 +392,8 @@ test "OSC 3008: unknown fields are ignored" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .context_signal);
-    try testing.expect(cmd.context_signal.readField(.type).? == .shell);
-    try testing.expectEqualStrings("root", cmd.context_signal.readField(.user).?);
+    try testing.expect(cmd.context_signal.readOption(.type).? == .shell);
+    try testing.expectEqualStrings("root", cmd.context_signal.readOption(.user).?);
 }
 
 test "OSC 3008: missing field returns null" {
@@ -439,9 +405,9 @@ test "OSC 3008: missing field returns null" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .context_signal);
-    try testing.expect(cmd.context_signal.readField(.type) == null);
-    try testing.expect(cmd.context_signal.readField(.hostname) == null);
-    try testing.expect(cmd.context_signal.readField(.pid) == null);
+    try testing.expect(cmd.context_signal.readOption(.type) == null);
+    try testing.expect(cmd.context_signal.readOption(.hostname) == null);
+    try testing.expect(cmd.context_signal.readOption(.pid) == null);
 }
 
 test "OSC 3008: invalid prefix" {
@@ -535,12 +501,12 @@ test "OSC 3008: spec example - container start" {
     try testing.expect(cmd == .context_signal);
     try testing.expect(cmd.context_signal.action == .start);
     try testing.expectEqualStrings("bed86fab93af4328bbed0a1224af6d40", cmd.context_signal.id);
-    try testing.expect(cmd.context_signal.readField(.type).? == .container);
-    try testing.expectEqualStrings("lennart", cmd.context_signal.readField(.user).?);
-    try testing.expectEqualStrings("zeta", cmd.context_signal.readField(.hostname).?);
-    try testing.expectEqualStrings("systemd-nspawn", cmd.context_signal.readField(.comm).?);
-    try testing.expectEqualStrings("foobar", cmd.context_signal.readField(.container).?);
-    try testing.expectEqual(@as(u64, 1062862), cmd.context_signal.readField(.pid).?);
+    try testing.expect(cmd.context_signal.readOption(.type).? == .container);
+    try testing.expectEqualStrings("lennart", cmd.context_signal.readOption(.user).?);
+    try testing.expectEqualStrings("zeta", cmd.context_signal.readOption(.hostname).?);
+    try testing.expectEqualStrings("systemd-nspawn", cmd.context_signal.readOption(.comm).?);
+    try testing.expectEqualStrings("foobar", cmd.context_signal.readOption(.container).?);
+    try testing.expectEqual(@as(u64, 1062862), cmd.context_signal.readOption(.pid).?);
 }
 
 test "OSC 3008: spec example - context end" {
@@ -566,8 +532,8 @@ test "OSC 3008: cwd and cmdline fields" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .context_signal);
-    try testing.expectEqualStrings("/home/user", cmd.context_signal.readField(.cwd).?);
-    try testing.expectEqualStrings("ls -la", cmd.context_signal.readField(.cmdline).?);
+    try testing.expectEqualStrings("/home/user", cmd.context_signal.readOption(.cwd).?);
+    try testing.expectEqualStrings("ls -la", cmd.context_signal.readOption(.cmdline).?);
 }
 
 test "OSC 3008: start command with no fields" {
@@ -581,7 +547,7 @@ test "OSC 3008: start command with no fields" {
     try testing.expect(cmd == .context_signal);
     try testing.expect(cmd.context_signal.action == .start);
     try testing.expectEqualStrings("simpleid", cmd.context_signal.id);
-    try testing.expect(cmd.context_signal.readField(.type) == null);
-    try testing.expect(cmd.context_signal.readField(.user) == null);
-    try testing.expect(cmd.context_signal.readField(.exit) == null);
+    try testing.expect(cmd.context_signal.readOption(.type) == null);
+    try testing.expect(cmd.context_signal.readOption(.user) == null);
+    try testing.expect(cmd.context_signal.readOption(.exit) == null);
 }
