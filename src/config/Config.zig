@@ -802,11 +802,17 @@ palette: Palette = .{},
 /// look. Colors that have been explicitly set via `palette` are never
 /// overwritten.
 ///
+/// The default value is false (disabled), because many legacy programs
+/// using the 256-color palette hardcode assumptions about what these
+/// colors are (mostly assuming the xterm 256 color palette). However, this
+/// is still a very useful tool for theme authors and users who want
+/// to customize their palette without having to specify all 256 colors.
+///
 /// For more information on how the generation works, see here:
 /// https://gist.github.com/jake-stewart/0a8ea46159a7da2c808e5be2177e1783
 ///
 /// Available since: 1.3.0
-@"palette-generate": bool = true,
+@"palette-generate": bool = false,
 
 /// Invert the palette colors generated when `palette-generate` is enabled,
 /// so that the colors go in reverse order. This allows palette-based
