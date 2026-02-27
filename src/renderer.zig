@@ -48,7 +48,7 @@ pub const Health = enum(c_int) {
     healthy,
     unhealthy,
 
-    test "ghostty_h Health" {
+    test "ghostty.h Health" {
         try lib.checkGhosttyHEnum(Health, "GHOSTTY_RENDERER_HEALTH_");
     }
 };

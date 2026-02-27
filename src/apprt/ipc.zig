@@ -24,7 +24,7 @@ pub const Target = union(Key) {
         class,
         detect,
 
-        test "ghostty_h Target.Key" {
+        test "ghostty.h Target.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_TARGET_");
         }
     };
@@ -114,7 +114,7 @@ pub const Action = union(enum) {
     pub const Key = enum(c_int) {
         new_window,
 
-        test "ghostty_h Action.Key" {
+        test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_ACTION_");
         }
     };

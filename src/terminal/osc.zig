@@ -199,7 +199,7 @@ pub const Command = union(Key) {
             indeterminate,
             pause,
 
-            test "ghostty_h Command.ProgressReport.State" {
+            test "ghostty.h Command.ProgressReport.State" {
                 try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
             }
         };

@@ -65,7 +65,7 @@ pub const MouseShape = enum(c_int) {
         };
     };
 
-    test "ghostty_h MouseShape" {
+    test "ghostty.h MouseShape" {
         try lib.checkGhosttyHEnum(MouseShape, "GHOSTTY_MOUSE_SHAPE_");
     }
 };
