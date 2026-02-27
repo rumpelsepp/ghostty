@@ -37,10 +37,10 @@ With this, you're ready to localize!
 
 ## Locale names
 
-A locale name will always consist of a [two letter language
+A locale name always consists of a [two letter language
 code](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) (e.g.
 `de`, `es`, `fr`). Sometimes, for languages that have regional variations
-(such as `zh` and `es`), the locale name will include a [two letter
+(such as `zh` and `es`), the locale name includes a [two letter
 country code](https://en.wikipedia.org/wiki/List_of_ISO_3166_country_codes).
 One example is `es_AR` for Spanish as spoken in Argentina.
 
@@ -50,9 +50,9 @@ has more information on locale names.
 
 ## Localization team name
 
-Every locale will have a localization team that helps keep localizations up to
-date. Localization team names _always_ consist of a language code and a country
-code (e.g. `de_DE` or `zh_CN`).
+Every locale has a localization team that helps keep localizations up to date.
+Localization team names _always_ consist of a language code and a country code
+(e.g. `de_DE` or `zh_CN`).
 
 ## Translation file names
 
@@ -175,8 +175,8 @@ the right click menu.
 ## Style guide
 
 These are general style guidelines for translations. Naturally, the specific
-recommended standards will differ based on the specific language/locale,
-but these should serve as a baseline for the tone and voice of any translation.
+recommended standards differ based on the specific language/locale, but these
+should serve as a baseline for the tone and voice of any translation.
 
 - **Prefer an instructive, yet professional tone.**
 
