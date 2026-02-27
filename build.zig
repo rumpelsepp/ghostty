@@ -292,6 +292,7 @@ pub fn build(b: *std.Build) !void {
             // Crash on x86_64 without this
             .use_llvm = true,
         });
+        test_exe.root_module.addIncludePath(b.path("include"));
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
 
