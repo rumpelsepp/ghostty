@@ -200,7 +200,7 @@ add a line like so:
 
 `X.po` here is the name of the translation file you created. Unlike the
 translation file's name, localization team names **always include a language and
-a country code**; `yy` here is the _language code_, and `ZZ` is the _country
+country code**; `yy` here is the _language code_, and `ZZ` is the _country
 code_.
 
 When adding a new entry, try to keep the list in **alphabetical order** if
