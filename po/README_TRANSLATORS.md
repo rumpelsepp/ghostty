@@ -273,7 +273,7 @@ a different editor, and some (such as Poedit) update the line when a different
 _version_ is used—this adds unnecessary changes to the diff.
 
 You can remove the `X-Generator` field by simply deleting that line from the
-file.
+file with a plain text editor.
 
 ### Updating metadata (revision date)
 
