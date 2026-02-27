@@ -136,16 +136,8 @@ pub const Field = enum {
         comptime self: Field,
         raw: []const u8,
     ) self.Type() {
-        var remaining = raw;
-        while (remaining.len > 0) {
-            const len = std.mem.indexOfScalar(
-                u8,
-                remaining,
-                ';',
-            ) orelse remaining.len;
-
-            const full = remaining[0..len];
-
+        var it = std.mem.splitScalar(u8, raw, ';');
+        while (it.next()) |full| {
             // Parse key=value
             const value = value: {
                 if (std.mem.indexOfScalar(
@@ -162,18 +154,12 @@ pub const Field = enum {
                     }
                 }
 
-                // No match, advance past the semicolon
-                if (len < remaining.len) {
-                    remaining = remaining[len + 1 ..];
-                    continue;
-                }
-
-                break;
+                continue;
             };
 
             return switch (self) {
-                .type => ContextType.parse(value),
-                .exit => ExitStatus.parse(value),
+                .type => .parse(value),
+                .exit => .parse(value),
                 .pid, .pidfdid, .status => value: {
                     for (value) |c| {
                         if (c < '0' or c > '9') break :value null;
