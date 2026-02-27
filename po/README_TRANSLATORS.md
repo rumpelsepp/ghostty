@@ -183,9 +183,9 @@ introduced support for the language.
 ### `CODEOWNERS`
 
 Localization teams are represented as teams in the Ghostty GitHub organization.
-GitHub reads a `CODEOWNERS` file, which maps files to teams, to determine
-identify relevant maintainers. When **introducing support for a language**, you
-should add the `.po` file to `CODEOWNERS`.
+GitHub reads a `CODEOWNERS` file, which maps files to teams, to identify
+relevant maintainers. When **introducing support for a language**, you should
+add the `.po` file to `CODEOWNERS`.
 
 To do this, find the `# Localization` section near the bottom of the file, and
 add a line like so:
