@@ -54,6 +54,10 @@ pub fn build(b: *std.Build) !void {
         "update-translations",
         "Update translation files",
     );
+    const test_include_ghostty_h_step = b.step(
+        "test-include-ghostty-h",
+        "Test include of ghostty.h",
+    );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
@@ -297,6 +301,24 @@ pub fn build(b: *std.Build) !void {
 
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);
+
+        const test_include_ghostty_h_exe = b.addTest(.{
+            .name = "ghostty-include-ghostty-h",
+            .filters = test_filters,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("include/test.zig"),
+                .target = config.baselineTarget(),
+                .optimize = .Debug,
+                .strip = false,
+                .omit_frame_pointer = false,
+                .unwind_tables = .sync,
+                .link_libc = true,
+            }),
+        });
+        test_include_ghostty_h_exe.addIncludePath(b.path("include"));
+        const test_include_ghostty_h_run = b.addRunArtifact(test_include_ghostty_h_exe);
+        test_include_ghostty_h_step.dependOn(&test_include_ghostty_h_run.step);
+        test_step.dependOn(test_include_ghostty_h_step);
 
         // Valgrind test running
         const valgrind_run = b.addSystemCommand(&.{
