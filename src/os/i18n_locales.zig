@@ -43,7 +43,7 @@ pub const locales = [_][:0]const u8{
     "id",
     "es_BO",
     "es_AR",
-    "pt",
+    "pt_BR",
     "ca",
     "it",
     "bg",
