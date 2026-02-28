@@ -37,7 +37,7 @@ pub const locales = [_][:0]const u8{
     "ru",
     "uk",
     "pl",
-    "ko",
+    "ko_KR",
     "mk",
     "tr",
     "id",
